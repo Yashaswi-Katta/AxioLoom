@@ -44,10 +44,10 @@ class LatexToSymjaTranspiler {
             }
             .replace(Regex("\\\\(?:vec|mathbf|boldsymbol|mathrm|text)\\s*\\{([^}]+)\\}")) { it.groupValues[1] }
             .replace(Regex("\\\\mathrm\\s*\\{\\s*d\\s*}"), "d")
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*L\\s*}|L\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))"), "\\ilaplace ")
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*Z\\s*}|Z\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))"), "\\iztrans ")
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*}|L\\b)(?!\\s*\\^)"), "\\laplace ")
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*}|Z\\b)(?!\\s*\\^)"), "\\ztrans ")
+            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*L\\s*}|L\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))")) { "\\ilaplace " }
+            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*Z\\s*}|Z\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))")) { "\\iztrans " }
+            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*}|L\\b)(?!\\s*\\^)")) { "\\laplace " }
+            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*}|Z\\b)(?!\\s*\\^)")) { "\\ztrans " }
             .replace(Regex("\\\\operatorname\\s*\\{\\s*(sin|cos|tan|arcsin|arccos|arctan|asin|acos|atan|sinh|cosh|tanh|ln|log|exp|sqrt|det|transpose|inverse|eigenvalues|eig|eigenvectors|tr|trace|rank|rref|Re|re|Im|im|conj|conjugate|arg|laplace|ilaplace|ztrans|grad|div|curl|step|unitstep|delta|dirac|diracdelta|taylor|series|conv|cconv|dft|idft|linreg|polyreg|mean|stdev)\\s*}")) {
                 "\\" + (if (it.groupValues[1] == "div") "divergence" else it.groupValues[1])
             }
@@ -170,7 +170,7 @@ class LatexToSymjaTranspiler {
                         while (end < text.length && (text[end] in 'a'..'z' || text[end] in 'A'..'Z')) end++
                         val word = text.substring(start, end)
                         if (word == "otherwise") { at = end; tokens += Token(Kind.OTHERWISE, word, start) }
-                        else if (word in functions || word == "taylor" || word == "series" || word == "conv" || word == "cconv" || word == "dft" || word == "idft") { at = end; tokens += Token(Kind.COMMAND, word, start) }
+                        else if (word in functions || word == "taylor" || word == "series" || word == "conv" || word == "cconv" || word == "dft" || word == "idft" || word == "laplace" || word == "ilaplace" || word == "ztrans" || word == "iztrans") { at = end; tokens += Token(Kind.COMMAND, word, start) }
                         else tokens += Token(Kind.NAME, c.toString(), start)
                     }
                     c == '\\' -> {
@@ -203,7 +203,7 @@ class LatexToSymjaTranspiler {
                                 "neq" -> tokens += Token(Kind.NEQ, "!=", start)
                                 "Re", "Im" -> tokens += Token(Kind.COMMAND, command, start)
                                 "frac", "dfrac", "tfrac", "sqrt", "int", "sum", "lim", "pi", "infty", "imaginaryi", "imath" -> tokens += Token(Kind.COMMAND, command, start)
-                                "laplace", "ilaplace", "ztrans", "grad", "curl", "divergence", "theta", "unitstep", "step", "diracdelta", "dirac", "delta", "taylor", "series", "conv", "cconv", "dft", "idft", "linreg", "polyreg", "mean", "stdev" -> tokens += Token(Kind.COMMAND, command, start)
+                                "laplace", "ilaplace", "ztrans", "iztrans", "grad", "curl", "divergence", "theta", "unitstep", "step", "diracdelta", "dirac", "delta", "taylor", "series", "conv", "cconv", "dft", "idft", "linreg", "polyreg", "mean", "stdev" -> tokens += Token(Kind.COMMAND, command, start)
                                 in functions -> tokens += Token(Kind.COMMAND, command, start)
                                 else -> throw MathParseException("Unsupported LaTeX command \\$command at $start")
                             }
@@ -380,7 +380,7 @@ class LatexToSymjaTranspiler {
                                 "curl" -> MathExpr.Curl(arguments(closing).first(), listOf("x", "y", "z"))
                                 "laplace" -> MathExpr.LaplaceTransform(arguments(closing).first(), "t", "s")
                                 "ilaplace" -> MathExpr.InverseLaplaceTransform(arguments(closing).first(), "s", "t")
-                                "ztrans" -> MathExpr.ZTransform(arguments(closing).first(), "n", "z")
+                                "ztrans", "iztrans" -> MathExpr.ZTransform(arguments(closing).first(), "n", "z")
                                 "taylor", "series" -> {
                                     at--
                                     parseTaylorSeries()
@@ -608,7 +608,7 @@ class LatexToSymjaTranspiler {
             }
             "laplace" -> MathExpr.LaplaceTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "t", "s")
             "ilaplace" -> MathExpr.InverseLaplaceTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "s", "t")
-            "ztrans" -> MathExpr.ZTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "n", "z")
+            "ztrans", "iztrans" -> MathExpr.ZTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "n", "z")
             "grad" -> MathExpr.Gradient(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
             "divergence" -> MathExpr.Divergence(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
             "curl" -> MathExpr.Curl(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
