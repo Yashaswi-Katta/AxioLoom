@@ -77,30 +77,30 @@ class SpatialStructureSynthesizer(
 
         val aspect = w / h
 
-        // 1. Straight vertical determinant bar: |
-        if (aspect <= 0.18f) {
-            return ClassifiedBracket(stroke, BracketKind.DETERMINANT_BAR, bounds)
-        }
-
-        // 2. Left Bracket [ or ( or { (concave right, opening to the right)
+        // 1. Left Bracket [ or ( or { (concave right, opening to the right)
         val endpointsOnRight = (first.x >= bounds.left + 0.25f * w) && (last.x >= bounds.left + 0.25f * w)
         val middleOnLeft = mid.x <= bounds.left + 0.55f * w
 
-        if (endpointsOnRight && middleOnLeft) {
+        if (endpointsOnRight && middleOnLeft && w >= 6f) {
             // Check if curly brace { (midpoint cusping left)
-            return if (aspect > 0.25f && points.size >= 5) {
+            return if (aspect > 0.35f && points.size >= 5) {
                 ClassifiedBracket(stroke, BracketKind.LEFT_BRACE, bounds)
             } else {
                 ClassifiedBracket(stroke, BracketKind.LEFT_BRACKET, bounds)
             }
         }
 
-        // 3. Right Bracket ] or ) (concave left, opening to the left)
+        // 2. Right Bracket ] or ) (concave left, opening to the left)
         val endpointsOnLeft = (first.x <= bounds.right - 0.25f * w) && (last.x <= bounds.right - 0.25f * w)
         val middleOnRight = mid.x >= bounds.right - 0.55f * w
 
-        if (endpointsOnLeft && middleOnRight) {
+        if (endpointsOnLeft && middleOnRight && w >= 6f) {
             return ClassifiedBracket(stroke, BracketKind.RIGHT_BRACKET, bounds)
+        }
+
+        // 3. Straight vertical determinant bar: |
+        if (aspect <= 0.22f) {
+            return ClassifiedBracket(stroke, BracketKind.DETERMINANT_BAR, bounds)
         }
 
         return null

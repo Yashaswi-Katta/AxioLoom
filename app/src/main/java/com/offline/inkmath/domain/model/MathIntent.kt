@@ -89,7 +89,7 @@ sealed interface MathExpr {
 typealias BinaryOperator = MathExpr.Op
 enum class UnaryOperator { NEGATE, FACTORIAL }
 
-fun isIdentifier(value: String): Boolean = value.matches(Regex("[a-zA-Z](?:_[a-zA-Z0-9]+)?"))
+fun isIdentifier(value: String): Boolean = value.matches(Regex("[a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)?"))
 
 data class SymbolKey(val name: String, val kind: Kind = Kind.VALUE) {
     init { require(isIdentifier(name)) }

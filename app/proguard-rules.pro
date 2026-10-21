@@ -33,3 +33,7 @@
 -keep class androidx.ink.** { *; }
 -keep class androidx.input.motionprediction.** { *; }
 -dontwarn androidx.ink.**
+
+# 7. Log4j (required by Symja ExprEvaluator)
+-dontwarn org.apache.logging.log4j.**
+-keep class org.apache.logging.log4j.** { *; }

@@ -14,8 +14,8 @@ object EngineeringConstants {
     fun expandSiSuffixes(latex: String): String {
         var clean = latex
         // Strip common engineering unit symbols that don't affect scalar CAS math
-        clean = clean.replace(Regex("\\\\(?:text|mathrm)\\s*\\{\\s*(?:Hz|hz|F|H|s|sec|V|v|A|a|W|w|Ohm|ohm|\\Omega)\\s*}"), "")
-            .replace(Regex("(?<=[0-9])\\s*(?:Hz|hz|\\Omega)\\b"), "")
+        clean = clean.replace(Regex("\\\\(?:text|mathrm)\\s*\\{\\s*(?:Hz|hz|F|H|s|sec|V|v|A|a|W|w|Ohm|ohm|\\\\Omega)\\s*}"), "")
+            .replace(Regex("(?<=[0-9])\\s*(?:Hz|hz|\\\\Omega)\\b"), "")
 
         // Map SI multipliers:
         // G -> 10^9

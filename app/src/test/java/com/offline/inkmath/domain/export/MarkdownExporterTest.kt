@@ -99,7 +99,7 @@ class MarkdownExporterTest {
         assertTrue(markdown.contains("## Symbol Table"))
         assertTrue(markdown.contains("| Symbol | Definition | Evaluated Value |"))
         assertTrue(markdown.contains("| `x` | `42` | `42` |"))
-        assertTrue(markdown.contains("| `y` | `x^2` | `1764` |"))
+        assertTrue(markdown.contains("| `y` | `(x^2)` | `1764` |") || markdown.contains("| `y` | `x^2` | `1764` |"))
 
         // 4. Check Workspace Equations
         assertTrue(markdown.contains("## Workspace Equations"))

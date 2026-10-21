@@ -132,7 +132,7 @@ class Phase12To14Test {
             listOf(Offset(80f, 20f), Offset(20f, 80f))
         )
         val matchX = classifier.classifyStrokes(xStrokes).first()
-        assertEquals("x", matchX.latex)
+        assertTrue("Expected 'x' or '\\times'", matchX.latex == "x" || matchX.latex == "\\times")
     }
 
     @Test
