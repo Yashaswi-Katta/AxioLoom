@@ -45,19 +45,19 @@ class Phase21To25FinalTest {
             steps = steps
         )
 
-        assertEquals("Expected 10x10 grid of points", 100, surfaceData.points.size)
+        assertEquals("Expected 10x10 grid of points", 100, surfaceData.vertices.size)
         assertEquals(10, surfaceData.steps)
-        assertTrue("Min Z should be <= -4.0", surfaceData.minZ <= -3.9)
-        assertTrue("Max Z should be >= 4.0", surfaceData.maxZ >= 3.9)
+        assertTrue("Min Z should be <= -4.0", surfaceData.zMin <= -3.9)
+        assertTrue("Max Z should be >= 4.0", surfaceData.zMax >= 3.9)
 
         // Verify Center Point (0, 0) => z = 0
-        val centerPt = surfaceData.points.minByOrNull { abs(it.x) + abs(it.y) }
+        val centerPt = surfaceData.vertices.minByOrNull { abs(it.x) + abs(it.y) }
         assertNotNull(centerPt)
         assertEquals(0.0, centerPt!!.z, 0.2)
 
         // Project quads via isometric projection and Painter's algorithm
-        val quads = Surface3DProjector.projectQuads(
-            surfaceData = surfaceData,
+        val quads = Surface3DProjector.buildQuads(
+            grid = surfaceData,
             yawDeg = 45.0,
             pitchDeg = 35.0,
             scale = 20.0,
@@ -120,7 +120,7 @@ class Phase21To25FinalTest {
         assertEquals(2.0, linearFit.slope, 1e-4)
         assertEquals(1.0, linearFit.intercept, 1e-4)
         assertEquals(1.0, linearFit.rSquared, 1e-4)
-        assertEquals(1.0, linearFit.pearsonR, 1e-4)
+        assertEquals(1.0, linearFit.r, 1e-4)
         assertTrue(linearFit.rmse < 1e-4)
 
         // 2. Quadratic: y = x^2 + 1
@@ -213,7 +213,7 @@ class Phase21To25FinalTest {
         val cas = OfflineCasEngine()
         try {
             cas.warmUp()
-            val graph = ReactiveSymbolGraph(cas)
+            val graph = ReactiveSymbolGraph(cas, CasMode.NUMERIC)
 
             val startTime = System.currentTimeMillis()
             val blockCount = 50
@@ -226,12 +226,12 @@ class Phase21To25FinalTest {
             val blockIds = List(blockCount) { UUID.randomUUID() }
 
             val firstIntent = parser.transpile("v_0 = 1").intent
-            graph.upsert(blockIds[0], firstIntent, CasMode.NUMERIC)
+            graph.upsert(blockIds[0], firstIntent)
 
             for (i in 1 until blockCount) {
                 val latex = "v_$i = v_${i - 1} + 1"
                 val intent = parser.transpile(latex).intent
-                graph.upsert(blockIds[i], intent, CasMode.NUMERIC)
+                graph.upsert(blockIds[i], intent)
             }
 
             val snapshot = graph.state.value

@@ -92,12 +92,12 @@ class Phase9To11Test {
 
         // Verify fast plot evaluator works for UnitStep
         val funcDef = MathIntent.FunctionDef("f", listOf("x"), MathExpr.Builtin(MathExpr.Function.UNIT_STEP, listOf(MathExpr.Binary(MathExpr.Op.SUBTRACT, MathExpr.Symbol("x"), MathExpr.Number("2")))))
-        val points = FastPlotEvaluator.evaluate1D(funcDef, emptyMap(), xMin = 0.0, xMax = 4.0, numPoints = 5)
+        val points = FastPlotEvaluator.sample(funcDef.body, paramName = "x", xMin = 0.0, xMax = 4.0, sampleCount = 5)
         assertEquals(5, points.size)
         // At x = 0 (0 - 2 < 0) -> y = 0
-        assertEquals(0.0, points[0].y, 1e-4)
+        assertEquals(0.0, points[0].second, 1e-4)
         // At x = 4 (4 - 2 > 0) -> y = 1
-        assertEquals(1.0, points[4].y, 1e-4)
+        assertEquals(1.0, points[4].second, 1e-4)
     }
 
     @Test
@@ -136,7 +136,7 @@ class Phase9To11Test {
             val transpiled = parser.transpile("\\int_0^1 x^2 dx =")
             val block = EquationBlock(
                 id = UUID.randomUUID(),
-                strokes = listOf(TimedStroke(UUID.randomUUID(), emptyList(), 1f)),
+                strokes = emptyList(),
                 bounds = Rect(0f, 0f, 100f, 50f),
                 medianStrokeHeight = 24f,
                 resultAnchorPoint = null,
