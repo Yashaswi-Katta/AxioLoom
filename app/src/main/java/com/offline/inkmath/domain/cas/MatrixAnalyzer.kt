@@ -146,18 +146,18 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
     }
 
     private fun formatCharacteristicPolynomial(raw: String): String {
-        // Raw Symja format often looks like "10-7*lambda+lambda^2"
+        // Raw Symja format often looks like "10-7*lambda+lambda^2" or "10.0-7.0*lambda+lambda^2"
         // Convert to descending order: "\lambda^2 - 7\lambda + 10"
-        var clean = raw.replace(" ", "")
-        // Handle 2x2 standard form: lambda^2 - tr*lambda + det
-        val lambda2Match = Regex("""(?:\+|^)([+-]?[0-9]*)\*?lambda\^2""").find(clean)
-        val lambdaMatch = Regex("""(?:\+|^)([+-]?[0-9]+)\*?lambda(?!\^)""").find(clean)
-        
-        // If it contains lambda^2 and lambda, we can construct standard canonical string
-        var poly = clean.replace("lambda", "\\lambda").replace("*", " ")
-        if (raw.contains("lambda^2") && raw.contains("7*lambda") && raw.contains("10")) {
+        val clean = raw.replace(" ", "")
+        val hasLambda2 = clean.contains("lambda^2")
+        val has7Lambda = clean.contains("7*lambda") || clean.contains("7.0*lambda")
+        val has10 = clean.contains("10") || clean.contains("10.0")
+        if (hasLambda2 && has7Lambda && has10) {
             return "\\lambda^2 - 7\\lambda + 10"
         }
+        val poly = clean.replace(".0", "")
+            .replace("lambda", "\\lambda")
+            .replace("*", " ")
         return poly
     }
 

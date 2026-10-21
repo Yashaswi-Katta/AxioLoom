@@ -44,9 +44,10 @@ class LatexToSymjaTranspiler {
             }
             .replace(Regex("\\\\(?:vec|mathbf|boldsymbol|mathrm|text)\\s*\\{([^}]+)\\}")) { it.groupValues[1] }
             .replace(Regex("\\\\mathrm\\s*\\{\\s*d\\s*}"), "d")
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*}|L)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)"), "\\ilaplace ")
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*}|L)\\b"), "\\laplace ")
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*}|Z)\\b"), "\\ztrans ")
+            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*L\\s*}|L\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))"), "\\ilaplace ")
+            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*Z\\s*}|Z\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))"), "\\iztrans ")
+            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*}|L\\b)(?!\\s*\\^)"), "\\laplace ")
+            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*}|Z\\b)(?!\\s*\\^)"), "\\ztrans ")
             .replace(Regex("\\\\operatorname\\s*\\{\\s*(sin|cos|tan|arcsin|arccos|arctan|asin|acos|atan|sinh|cosh|tanh|ln|log|exp|sqrt|det|transpose|inverse|eigenvalues|eig|eigenvectors|tr|trace|rank|rref|Re|re|Im|im|conj|conjugate|arg|laplace|ilaplace|ztrans|grad|div|curl|step|unitstep|delta|dirac|diracdelta|taylor|series|conv|cconv|dft|idft|linreg|polyreg|mean|stdev)\\s*}")) {
                 "\\" + (if (it.groupValues[1] == "div") "divergence" else it.groupValues[1])
             }
