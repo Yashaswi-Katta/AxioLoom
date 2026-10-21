@@ -3,6 +3,7 @@ name: InkMath Android CI & APK Builder
 on:
   push:
     branches: [ "main", "master" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -40,11 +41,34 @@ jobs:
           fi
           ls -la app/src/main/assets/hmer
 
-      - name: Set up Android SDK (API 35)
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK & Accept Licenses
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
 
-      - name: Accept Android SDK Licenses
-        run: yes | sdkmanager --licenses > /dev/null || true
+          # Detect modern cmdline-tools sdkmanager
+          SDK_DIR=""
+          for cmd_dir in "$ANDROID_HOME/cmdline-tools/latest/bin" "$ANDROID_HOME/cmdline-tools/16.0/bin" "$ANDROID_HOME/cmdline-tools/bin"; do
+            if [ -x "$cmd_dir/sdkmanager" ]; then
+              SDK_DIR="$cmd_dir"
+              break
+            fi
+          done
+          if [ -z "$SDK_DIR" ] && command -v sdkmanager >/dev/null 2>&1; then
+            SDK_DIR=$(dirname "$(command -v sdkmanager)")
+          fi
+
+          if [ -n "$SDK_DIR" ]; then
+            export PATH="$SDK_DIR:$PATH"
+            echo "$SDK_DIR" >> $GITHUB_PATH
+            echo "Found sdkmanager at: $SDK_DIR/sdkmanager"
+            yes | "$SDK_DIR/sdkmanager" --licenses > /dev/null 2>&1 || true
+            "$SDK_DIR/sdkmanager" "platforms;android-35" "build-tools;35.0.0" || true
+          else
+            echo "sdkmanager not found directly; Gradle auto-download will handle SDK packages."
+          fi
 
       - name: Set up Gradle 8.11.1 (Wrapper-Free Cloud Execution)
         uses: gradle/actions/setup-gradle@v4
