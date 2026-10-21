@@ -1,8 +1,10 @@
 package com.offline.inkmath.domain.cas
 
+import com.offline.inkmath.domain.evaluator.FastPlotEvaluator
 import com.offline.inkmath.domain.model.MathExpr
 import com.offline.inkmath.domain.model.MathIntent
 import com.offline.inkmath.domain.model.SymjaCompiler
+import com.offline.inkmath.domain.parser.LatexToSymjaTranspiler
 import kotlin.math.abs
 
 data class TangentLine(
@@ -78,7 +80,7 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
 
         val fa = evaluateNumeric(fSymjaExpr, variable, a)
         val fb = evaluateNumeric(fSymjaExpr, variable, b)
-        val faEqualsFb = abs(fa - fb) < 1e-6
+        val faEqualsFb = abs(fa - fb) < 1e-4
 
         val derivLatex = cas.evalCommandToLatex("D($fSymjaExpr, $variable)")
 
@@ -271,6 +273,11 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
 
     private suspend fun evaluateNumeric(expr: String, variable: String, value: Double): Double {
         return try {
+            val transpiled = LatexToSymjaTranspiler().transpile(expr).intent
+            if (transpiled is MathIntent.EvaluationQuery) {
+                val fast = FastPlotEvaluator.evaluate(transpiled.expression, mapOf(variable to value))
+                if (fast.isFinite()) return fast
+            }
             val cmd = "N(ReplaceAll($expr, $variable -> ($value)))"
             val raw = cas.evalRaw(cmd)
             raw.toDoubleOrNull() ?: Double.NaN

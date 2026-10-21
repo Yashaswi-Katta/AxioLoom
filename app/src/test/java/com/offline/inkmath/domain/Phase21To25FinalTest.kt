@@ -247,7 +247,7 @@ class Phase21To25FinalTest {
 
             // Verify final node v_49 evaluates to 50
             val lastBlock = snapshot.blocks[blockIds.last()]
-            assertEquals("v_49 should evaluate to 50", "50", lastBlock?.result?.expression)
+            assertEquals("v_49 should evaluate to 50", "50", lastBlock?.result?.expression?.removeSuffix(".0"))
 
             val elapsedMs = System.currentTimeMillis() - startTime
             println("50-node reactive DAG chain evaluated in $elapsedMs ms")

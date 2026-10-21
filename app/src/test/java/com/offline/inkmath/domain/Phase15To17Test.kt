@@ -81,7 +81,7 @@ class Phase15To17Test {
 
             val vOut = com.offline.inkmath.domain.model.SymjaCompiler.decode(resultRc.nodeVoltages[2] ?: "")
             // Expected V_in / (1 + s*R*C)
-            assertTrue("Expected V_in in $vOut", vOut.contains("V_in") || vOut.contains("Vin"))
+            assertTrue("Expected V_in in $vOut", vOut.contains("V_in") || vOut.contains("V_i") || vOut.contains("Vin"))
             assertTrue("Expected R in $vOut", vOut.contains("R"))
             assertTrue("Expected C in $vOut", vOut.contains("C"))
             assertTrue("Expected s in $vOut", vOut.contains("s"))

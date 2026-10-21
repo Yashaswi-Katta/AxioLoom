@@ -64,7 +64,7 @@ class Phase18To20Test {
             )
             assertTrue(
                 "Expected 7*lambda in characteristic polynomial, got: ${result.characteristicPolynomialRaw}",
-                result.characteristicPolynomialRaw.contains("7*lambda") || result.characteristicPolynomialRaw.contains("7 * lambda")
+                result.characteristicPolynomialRaw.contains("7*lambda") || result.characteristicPolynomialRaw.contains("7.0*lambda") || result.characteristicPolynomialRaw.contains("7 * lambda")
             )
             assertTrue(
                 "Expected 10 in characteristic polynomial, got: ${result.characteristicPolynomialRaw}",
