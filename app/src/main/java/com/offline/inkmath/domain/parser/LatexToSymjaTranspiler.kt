@@ -370,7 +370,7 @@ class LatexToSymjaTranspiler {
                             MathExpr.Derivative(MathExpr.Symbol(name), indep, primes)
                         }
                         accept(Kind.LP) || accept(Kind.LB) -> {
-                            val closing = if (previous().kind == Kind.LB) Kind.RB else Kind.RP
+                            val closing = if (tokens[at - 1].kind == Kind.LB) Kind.RB else Kind.RP
                             when (name) {
                                 "u", "step", "unitstep" -> MathExpr.Builtin(MathExpr.Function.UNIT_STEP, arguments(closing))
                                 "delta", "dirac", "diracdelta" -> MathExpr.Builtin(MathExpr.Function.DIRAC_DELTA, arguments(closing))
