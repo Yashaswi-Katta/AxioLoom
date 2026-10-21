@@ -2,6 +2,7 @@ package com.offline.inkmath.domain.codegen
 
 import com.offline.inkmath.domain.model.BinaryOperator
 import com.offline.inkmath.domain.model.MathExpr
+import com.offline.inkmath.domain.model.SymbolKey
 import com.offline.inkmath.domain.model.UnaryOperator
 import com.offline.inkmath.domain.model.references
 import java.util.Locale
