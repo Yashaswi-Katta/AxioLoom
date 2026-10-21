@@ -11,11 +11,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
 import androidx.ink.brush.Brush
 import androidx.ink.brush.StockBrushes
-import androidx.ink.strokes.InProgressStrokeId
 import androidx.ink.strokes.Stroke
 import androidx.input.motionprediction.MotionEventPredictor
 import com.offline.inkmath.domain.model.EquationBlock
@@ -132,7 +132,7 @@ private class InkInputLayout(
     })
     private val finishedListener = object : InProgressStrokesFinishedListener {
         override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
-            strokes.values.forEach(onStrokeFinished)
+            strokes.values.forEach { stroke: Stroke -> onStrokeFinished(stroke) }
             inkView.removeFinishedStrokes(strokes.keys)
         }
     }
@@ -174,7 +174,11 @@ private class InkInputLayout(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
+        val save = canvas.save()
+        canvas.concat(viewport.worldToScreenMatrix())
         super.dispatchDraw(canvas)
+        canvas.restoreToCount(save)
+
         hoverScreenPos?.let { pos ->
             val paint = android.graphics.Paint().apply {
                 color = android.graphics.Color.parseColor("#FFB300")
@@ -409,11 +413,4 @@ private class InkInputLayout(
 
     private fun isFinger(event: MotionEvent, index: Int): Boolean =
         event.getToolType(index) == MotionEvent.TOOL_TYPE_FINGER
-
-    override fun dispatchDraw(canvas: Canvas) {
-        val save = canvas.save()
-        canvas.concat(viewport.worldToScreenMatrix())
-        super.dispatchDraw(canvas)
-        canvas.restoreToCount(save)
-    }
 }

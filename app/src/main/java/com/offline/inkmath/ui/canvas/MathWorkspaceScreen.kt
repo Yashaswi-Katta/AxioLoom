@@ -66,14 +66,14 @@ import com.offline.inkmath.domain.codegen.EmbeddedCGenerator
 import com.offline.inkmath.domain.dag.FastNumericResult
 import com.offline.inkmath.domain.export.MarkdownExporter
 import com.offline.inkmath.domain.export.PdfTheme
+import com.offline.inkmath.domain.clustering.InkWorkspaceState
+import com.offline.inkmath.domain.dag.ReactiveGraphSnapshot
 import com.offline.inkmath.domain.model.BlockDisplayMode
 import com.offline.inkmath.domain.model.BlockStatus
 import com.offline.inkmath.domain.model.CasMode
 import com.offline.inkmath.domain.model.EquationBlock
-import com.offline.inkmath.domain.model.InkWorkspaceState
 import com.offline.inkmath.domain.model.MathExpr
 import com.offline.inkmath.domain.model.MathIntent
-import com.offline.inkmath.domain.model.ReactiveGraphSnapshot
 import com.offline.inkmath.domain.model.SymbolicTransform
 import com.offline.inkmath.ml.hmer.ExternalModelStatus
 import com.offline.inkmath.ui.InkMathViewModel
