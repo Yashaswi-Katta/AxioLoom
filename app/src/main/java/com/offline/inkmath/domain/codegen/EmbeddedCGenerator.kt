@@ -5,6 +5,7 @@ import com.offline.inkmath.domain.model.MathExpr
 import com.offline.inkmath.domain.model.UnaryOperator
 import com.offline.inkmath.domain.model.references
 import java.util.Locale
+import kotlin.math.max
 
 enum class CPrecision(val typeName: String, val suffix: String, val mathPrefix: String) {
     FLOAT("float", "f", "f"),

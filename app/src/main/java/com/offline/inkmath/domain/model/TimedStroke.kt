@@ -81,26 +81,7 @@ class TimedStroke internal constructor(
         val translatedPoints = points.map { InkPoint(it.x + dx, it.y + dy, it.elapsedTimeMillis) }
         val translatedBounds = Rect(bounds.left + dx, bounds.top + dy, bounds.right + dx, bounds.bottom + dy)
         val newGeom = StrokeGeometry(id, translatedPoints, translatedBounds)
-        val newStroke = _stroke?.let { s ->
-            try {
-                val batch = androidx.ink.strokes.MutableStrokeInputBatch().apply {
-                    translatedPoints.forEach { pt ->
-                        add(
-                            androidx.ink.strokes.StrokeInput.create(
-                                x = pt.x,
-                                y = pt.y,
-                                elapsedTimeMillis = pt.elapsedTimeMillis,
-                                toolType = androidx.ink.strokes.InputToolType.STYLUS
-                            )
-                        )
-                    }
-                }
-                Stroke(s.brush, batch)
-            } catch (_: Exception) {
-                null
-            }
-        }
-        return TimedStroke(newStroke, finishedAtMillis, newGeom)
+        return TimedStroke(_stroke, finishedAtMillis, newGeom)
     }
 
     companion object {

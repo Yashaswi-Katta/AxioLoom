@@ -189,7 +189,7 @@ class SpatialStructureSynthesizer(
     /**
      * Projects cells into rows and columns by clustering centroids.
      */
-    fun alignGrid(cells: List<CellCluster>, medianHeight: Float): List<List<CellCluster>> {
+    fun alignGrid(cells: List<CellCluster>, medianHeight: Float = 24f): List<List<CellCluster>> {
         val rowThreshold = max(medianHeight * 0.6f, 15f)
 
         // 1. Group into rows by vertical center

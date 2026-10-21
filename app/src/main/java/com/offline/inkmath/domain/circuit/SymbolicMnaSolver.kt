@@ -331,7 +331,7 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
         val iList = iVec.joinToString(",", "{", "}") { SymjaCompiler.compile(MathIntent.EvaluationQuery(it)).command }
         val cmd = "Together(LinearSolve($gRows,$iList))"
 
-        val rawResult = cas.evaluateRaw(cmd)
+        val rawResult = cas.evalRaw(cmd)
         // Parse list result from Symja: {sol1, sol2, ...}
         val clean = rawResult.trim().removePrefix("{").removeSuffix("}").trim()
         if (clean.isBlank()) return List(dim) { "0" }

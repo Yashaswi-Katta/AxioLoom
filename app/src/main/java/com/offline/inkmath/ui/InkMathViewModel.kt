@@ -28,9 +28,11 @@ import com.offline.inkmath.domain.model.CasMode
 import com.offline.inkmath.domain.model.MathIntent
 import com.offline.inkmath.domain.model.SymbolicTransform
 import com.offline.inkmath.domain.model.TimedStroke
+import com.offline.inkmath.domain.model.definedSymbol
 import com.offline.inkmath.domain.parser.AmbiguousSolveVariableException
 import com.offline.inkmath.domain.parser.LatexToSymjaTranspiler
 import com.offline.inkmath.ml.hmer.BlockRecognitionOutcome
+import com.offline.inkmath.ml.hmer.HmerInferenceResult
 import com.offline.inkmath.ml.hmer.HmerRecognitionCoordinator
 import com.offline.inkmath.ml.hmer.OnnxHmerEngine
 import com.offline.inkmath.ml.hmer.RecognitionSource
@@ -493,7 +495,7 @@ class InkMathViewModel(application: Application) : AndroidViewModel(application)
                             is MathIntent.EvaluationQuery -> inT.expression
                             is MathIntent.Assignment -> inT.rhs
                             is MathIntent.FunctionDef -> inT.body
-                            is MathIntent.EquationSolve -> inT.equation
+                            is MathIntent.EquationSolve -> inT.lhs
                             else -> null
                         }
                         if (exprToCheck != null) {
@@ -609,7 +611,7 @@ class InkMathViewModel(application: Application) : AndroidViewModel(application)
                             status = com.offline.inkmath.domain.model.BlockStatus.Ready
                         )
                         populatedBlocks += updatedBlock
-                        graph.update(updatedBlock)
+                        graph.upsert(updatedBlock.id, transpiled.intent)
                         transpiled.intent.let {
                             if (it is com.offline.inkmath.domain.model.MathIntent.Assignment) bound += it.variableName
                             else if (it is com.offline.inkmath.domain.model.MathIntent.FunctionDef) bound += it.funcName
@@ -637,8 +639,10 @@ class InkMathViewModel(application: Application) : AndroidViewModel(application)
 
             val tInfer0 = System.nanoTime()
             val latexResult = try {
-                val outcome = hmerEngine.recognize(tensor)
-                outcome.latex.ifBlank { "y = x^2" }
+                when (val outcome = hmerEngine.recognize(tensor)) {
+                    is HmerInferenceResult.Recognized -> outcome.latex.ifBlank { "y = x^2" }
+                    else -> "f(x) = x^2"
+                }
             } catch (_: Exception) {
                 "f(x) = x^2"
             }
@@ -693,7 +697,7 @@ class InkMathViewModel(application: Application) : AndroidViewModel(application)
                 strokes = current.strokes + stroke,
                 blocks = current.blocks + newBlock
             )
-            transpiled?.let { graph.update(newBlock) }
+            transpiled?.let { graph.upsert(newBlock.id, it.intent) }
             scheduleAutoSave()
         }
     }

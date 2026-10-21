@@ -2,18 +2,13 @@ package com.offline.inkmath.data.storage
 
 import android.content.Context
 import android.graphics.Color
-import androidx.ink.brush.Brush
-import androidx.ink.brush.StockBrushes
-import androidx.ink.strokes.InputToolType
-import androidx.ink.strokes.MutableStrokeInputBatch
-import androidx.ink.strokes.Stroke
-import androidx.ink.strokes.StrokeInput
 import com.offline.inkmath.domain.clustering.InkWorkspaceState
 import com.offline.inkmath.domain.dag.ReactiveSymbolGraph
 import com.offline.inkmath.domain.model.BlockDisplayMode
 import com.offline.inkmath.domain.model.BlockStatus
 import com.offline.inkmath.domain.model.EquationBlock
 import com.offline.inkmath.domain.model.InkPoint
+import com.offline.inkmath.domain.model.StrokeGeometry
 import com.offline.inkmath.domain.model.SymbolicTransform
 import com.offline.inkmath.domain.model.TimedStroke
 import com.offline.inkmath.domain.model.unionBounds
@@ -201,7 +196,7 @@ class NotebookRepository(private val context: Context) {
         id: UUID,
         parser: LatexToSymjaTranspiler,
         graph: ReactiveSymbolGraph
-    ): InkWorkspaceState? = synchronized(lock) {
+    ): InkWorkspaceState? {
         val file = getPageFile(id)
         if (!file.exists() || file.length() == 0L) return null
 
@@ -229,26 +224,17 @@ class NotebookRepository(private val context: Context) {
                 }
                 if (points.isEmpty()) continue
 
-                val brush = Brush.createWithColorIntArgb(
-                    family = StockBrushes.markerLatest,
-                    colorIntArgb = brushColor,
-                    size = brushSize,
-                    epsilon = 0.1f
-                )
-                val batch = MutableStrokeInputBatch().apply {
-                    points.forEach { pt ->
-                        add(
-                            StrokeInput.create(
-                                x = pt.x,
-                                y = pt.y,
-                                elapsedTimeMillis = pt.elapsedTimeMillis,
-                                toolType = InputToolType.STYLUS
-                            )
-                        )
-                    }
+                var left = Float.POSITIVE_INFINITY
+                var top = Float.POSITIVE_INFINITY
+                var right = Float.NEGATIVE_INFINITY
+                var bottom = Float.NEGATIVE_INFINITY
+                points.forEach { pt ->
+                    left = kotlin.math.min(left, pt.x); top = kotlin.math.min(top, pt.y)
+                    right = kotlin.math.max(right, pt.x); bottom = kotlin.math.max(bottom, pt.y)
                 }
-                val nativeStroke = Stroke(brush, batch)
-                val timed = TimedStroke.fromStroke(nativeStroke, finishedAt, strokeId)
+                val radius = brushSize / 2f
+                val bounds = androidx.compose.ui.geometry.Rect(left - radius, top - radius, right + radius, bottom + radius)
+                val timed = TimedStroke(null, finishedAt, StrokeGeometry(strokeId, points, bounds))
                 reconstructedStrokes += timed
                 strokesById[strokeId] = timed
             }

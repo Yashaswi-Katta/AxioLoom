@@ -159,54 +159,57 @@ object TransferFunctionAnalyzer {
     /**
      * Extracts polynomial coefficients: index 0 is s^0, index 1 is s^1, etc.
      */
-    fun extractCoefficients(expr: MathExpr, varName: String): DoubleArray? = when (expr) {
-        is MathExpr.Number -> doubleArrayOf(expr.value.toDoubleOrNull() ?: return null)
-        is MathExpr.Constant -> when (expr) {
-            MathExpr.Constant.PI -> doubleArrayOf(PI)
-            MathExpr.Constant.E -> doubleArrayOf(E)
-            else -> return null
+    fun extractCoefficients(expr: MathExpr, varName: String): DoubleArray? {
+        return when (expr) {
+            is MathExpr.Number -> doubleArrayOf(expr.value.toDoubleOrNull() ?: return null)
+            is MathExpr.Constant -> when (expr) {
+                MathExpr.Constant.PI -> doubleArrayOf(PI)
+                MathExpr.Constant.E -> doubleArrayOf(E)
+                else -> return null
+            }
+            is MathExpr.Symbol -> {
+                if (expr.name == varName) doubleArrayOf(0.0, 1.0)
+                else null
+            }
+            is MathExpr.Unary -> {
+                val inner = extractCoefficients(expr.value, varName) ?: return null
+                if (expr.negative) DoubleArray(inner.size) { -inner[it] } else inner
+            }
+            is MathExpr.Binary -> when (expr.op) {
+                MathExpr.Op.ADD -> {
+                    val l = extractCoefficients(expr.left, varName) ?: return null
+                    val r = extractCoefficients(expr.right, varName) ?: return null
+                    addPoly(l, r)
+                }
+                MathExpr.Op.SUBTRACT -> {
+                    val l = extractCoefficients(expr.left, varName) ?: return null
+                    val r = extractCoefficients(expr.right, varName) ?: return null
+                    subPoly(l, r)
+                }
+                MathExpr.Op.MULTIPLY -> {
+                    val l = extractCoefficients(expr.left, varName) ?: return null
+                    val r = extractCoefficients(expr.right, varName) ?: return null
+                    mulPoly(l, r)
+                }
+                MathExpr.Op.POWER -> {
+                    val base = extractCoefficients(expr.left, varName) ?: return null
+                    val expNum = (expr.right as? MathExpr.Number)?.value?.toIntOrNull() ?: return null
+                    if (expNum < 0 || expNum > 6) return null
+                    var res = doubleArrayOf(1.0)
+                    repeat(expNum) { res = mulPoly(res, base) }
+                    res
+                }
+                MathExpr.Op.DIVIDE -> {
+                    // Scalar division only
+                    val num = extractCoefficients(expr.left, varName) ?: return null
+                    val denVal = (expr.right as? MathExpr.Number)?.value?.toDoubleOrNull() ?: return null
+                    if (abs(denVal) < 1e-12) return null
+                    DoubleArray(num.size) { num[it] / denVal }
+                }
+                else -> null
+            }
+            else -> null
         }
-        is MathExpr.Symbol -> {
-            if (expr.name == varName) doubleArrayOf(0.0, 1.0)
-            else null
-        }
-        is MathExpr.Unary -> {
-            val inner = extractCoefficients(expr.value, varName) ?: return null
-            if (expr.negative) DoubleArray(inner.size) { -inner[it] } else inner
-        }
-        is MathExpr.Binary -> when (expr.op) {
-            MathExpr.Op.ADD -> {
-                val l = extractCoefficients(expr.left, varName) ?: return null
-                val r = extractCoefficients(expr.right, varName) ?: return null
-                addPoly(l, r)
-            }
-            MathExpr.Op.SUBTRACT -> {
-                val l = extractCoefficients(expr.left, varName) ?: return null
-                val r = extractCoefficients(expr.right, varName) ?: return null
-                subPoly(l, r)
-            }
-            MathExpr.Op.MULTIPLY -> {
-                val l = extractCoefficients(expr.left, varName) ?: return null
-                val r = extractCoefficients(expr.right, varName) ?: return null
-                mulPoly(l, r)
-            }
-            MathExpr.Op.POWER -> {
-                val base = extractCoefficients(expr.left, varName) ?: return null
-                val expNum = (expr.right as? MathExpr.Number)?.value?.toIntOrNull() ?: return null
-                if (expNum < 0 || expNum > 6) return null
-                var res = doubleArrayOf(1.0)
-                repeat(expNum) { res = mulPoly(res, base) }
-                res
-            }
-            MathExpr.Op.DIVIDE -> {
-                // Scalar division only
-                val num = extractCoefficients(expr.left, varName) ?: return null
-                val denVal = (expr.right as? MathExpr.Number)?.value?.toDoubleOrNull() ?: return null
-                if (abs(denVal) < 1e-12) return null
-                DoubleArray(num.size) { num[it] / denVal }
-            }
-        }
-        else -> null
     }
 
     private fun addPoly(a: DoubleArray, b: DoubleArray): DoubleArray {

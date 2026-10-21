@@ -131,7 +131,7 @@ class ReactiveSymbolGraph(
         }
     }
 
-    private fun recompute(
+    private suspend fun recompute(
         oldIntents: Map<UUID, MathIntent>,
         oldDependencies: Map<UUID, Set<UUID>>,
         seeds: Set<UUID>
