@@ -200,7 +200,7 @@ class NotebookRepository(private val context: Context) {
         val file = getPageFile(id)
         if (!file.exists() || file.length() == 0L) return null
 
-        try {
+        return try {
             val text = file.readText(Charsets.UTF_8)
             val root = JSONObject(text)
             val version = root.optLong("version", 0L)
