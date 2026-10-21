@@ -34,7 +34,7 @@ object EmbeddedCGenerator {
         precision: CPrecision = CPrecision.FLOAT
     ): GeneratedCCode {
         val type = precision.typeName
-        val vars = expr.references().map { it.name }.distinct().sorted()
+        val vars = expr.references().filter { it.kind == SymbolKey.Kind.VALUE }.map { it.name }.distinct().sorted()
         val paramList = if (vars.isEmpty()) "void" else vars.joinToString(", ") { "$type $it" }
 
         val cseSubtrees = mutableMapOf<String, String>()

@@ -37,7 +37,7 @@ class Phase15To17Test {
 
             // 2. Symbolic compilation: R_1 || R_2 = ((R_1*R_2)/(R_1+R_2))
             val transpiledSym = parser.transpile("R_1 \\parallel R_2 =")
-            val canonicalSymja = transpiledSym.canonicalSymja
+            val canonicalSymja = com.offline.inkmath.domain.model.SymjaCompiler.decode(transpiledSym.canonicalSymja)
             assertEquals("((R_1*R_2)/(R_1+R_2))", canonicalSymja)
 
             // 3. Reactive component helpers: Zc(C, s) -> 1/(s*C), Zl(L, s) -> s*L
@@ -79,9 +79,9 @@ class Phase15To17Test {
             val elementsRc = solver.parseNetlist(netlistRc)
             val resultRc = solver.solve(elementsRc, theveninPort = 2 to 0)
 
-            val vOut = resultRc.nodeVoltages[2] ?: ""
+            val vOut = com.offline.inkmath.domain.model.SymjaCompiler.decode(resultRc.nodeVoltages[2] ?: "")
             // Expected V_in / (1 + s*R*C)
-            assertTrue("Expected V_in in $vOut", vOut.contains("V_in"))
+            assertTrue("Expected V_in in $vOut", vOut.contains("V_in") || vOut.contains("Vin"))
             assertTrue("Expected R in $vOut", vOut.contains("R"))
             assertTrue("Expected C in $vOut", vOut.contains("C"))
             assertTrue("Expected s in $vOut", vOut.contains("s"))

@@ -46,8 +46,7 @@ data class EquationBlock internal constructor(
     val alternatives: List<String> = emptyList()
 ) {
     init {
-        require(strokes.isNotEmpty())
-        require(strokes.map { it.id }.distinct().size == strokes.size)
+        require(strokes.isEmpty() || strokes.map { it.id }.distinct().size == strokes.size)
         require(bounds.isFiniteOrdered())
         require(medianStrokeHeight.isFinite() && medianStrokeHeight > 0f)
         require(revision >= 0L)

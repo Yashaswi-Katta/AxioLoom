@@ -28,7 +28,7 @@ class FastPlotEvaluatorTest {
                 val fastResult = FastPlotEvaluator.evaluate(funcDef.body, mapOf("x" to x))
 
                 val evalQuery = parser.transpile("f($x) =?").intent
-                val casResult = cas.evaluate(evalQuery, mode = CasMode.NUMERIC).expression.toDouble()
+                val casResult = cas.evaluate(evalQuery, BindingSnapshot(functions = mapOf("f" to funcDef)), mode = CasMode.NUMERIC).expression.toDouble()
 
                 assertEquals(casResult, fastResult, 1e-4)
             }

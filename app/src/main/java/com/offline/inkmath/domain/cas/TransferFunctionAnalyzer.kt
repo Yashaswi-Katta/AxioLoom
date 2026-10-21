@@ -124,7 +124,12 @@ object TransferFunctionAnalyzer {
         val stability = determineStability(poles)
 
         val bodePoints = computeBodeResponse(numCoeffs, denCoeffs)
-        val dcGainDb = bodePoints.firstOrNull()?.magnitudeDb ?: 0.0
+        val dcGainRatio = if (denCoeffs.isNotEmpty() && abs(denCoeffs[0]) > 1e-12 && numCoeffs.isNotEmpty()) {
+            abs(numCoeffs[0] / denCoeffs[0])
+        } else {
+            bodePoints.firstOrNull()?.let { 10.0.pow(it.magnitudeDb / 20.0) } ?: 1.0
+        }
+        val dcGainDb = if (dcGainRatio > 0.0) 20.0 * log10(dcGainRatio) else -100.0
 
         // Find -3dB cutoff frequency relative to DC gain
         val target3Db = dcGainDb - 3.0

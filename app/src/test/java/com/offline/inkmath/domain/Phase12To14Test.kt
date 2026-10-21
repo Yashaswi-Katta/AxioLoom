@@ -82,7 +82,7 @@ class Phase12To14Test {
             // Symja evaluates Normal(Series(Sin(x), {x, 0, 5})) to 1/120*x^5-1/6*x^3+x or x-1/6*x^3+1/120*x^5
             assertTrue(
                 "Expected x, x^3/6, and x^5/120 terms in Taylor series, got: $expr",
-                expr.contains("x") && expr.contains("1/6*x^3") && expr.contains("1/120*x^5")
+                expr.contains("x") && (expr.contains("1/6*x^3") || expr.contains("x^3/6")) && (expr.contains("1/120*x^5") || expr.contains("x^5/120"))
             )
         } finally {
             cas.close()

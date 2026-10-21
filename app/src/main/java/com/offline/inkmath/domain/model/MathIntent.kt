@@ -3,7 +3,7 @@ package com.offline.inkmath.domain.model
 /** Only these nodes may cross the recognition-to-CAS boundary. No raw CAS code is accepted. */
 sealed interface MathExpr {
     data class Number(val value: String) : MathExpr {
-        init { require(value.length <= 128 && value.matches(Regex("(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"))) }
+        init { require(value.length <= 128 && value.matches(Regex("-?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"))) }
     }
     data class Symbol(val name: String) : MathExpr { init { require(isIdentifier(name)) } }
     enum class Constant : MathExpr { PI, E, INFINITY, I }
@@ -219,6 +219,19 @@ object SymjaCompiler {
         CompiledExpression(command, aliases.toMap())
     }
 
+    fun decode(text: String): String {
+        val regex = Regex("ink(?:sub|fun)([0-9a-fA-Fz]+)")
+        return regex.replace(text) { match ->
+            try {
+                val hexList = match.groupValues[1].split('z')
+                val chars = hexList.map { it.toInt(16).toChar() }
+                String(chars.toCharArray())
+            } catch (_: Exception) {
+                match.value
+            }
+        }
+    }
+
     private class Builder(val bindings: BindingSnapshot) {
         val aliases = linkedMapOf<String, String>()
         private var budget = 16_384
@@ -352,11 +365,11 @@ object SymjaCompiler {
                 }
                 is MathExpr.Divergence -> {
                     val coordsList = expr.coords.joinToString(",", "{", "}") { symbol(it) }
-                    "Div(${r(expr.vectorField)},$coordsList)"
+                    "Div(Flatten(${r(expr.vectorField)}),$coordsList)"
                 }
                 is MathExpr.Curl -> {
                     val coordsList = expr.coords.joinToString(",", "{", "}") { symbol(it) }
-                    "Curl(${r(expr.vectorField)},$coordsList)"
+                    "Curl(Flatten(${r(expr.vectorField)}),$coordsList)"
                 }
                 is MathExpr.TaylorSeries -> {
                     val v = symbol(expr.variable)

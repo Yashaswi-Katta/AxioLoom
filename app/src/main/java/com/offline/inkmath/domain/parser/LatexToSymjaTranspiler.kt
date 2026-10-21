@@ -369,21 +369,22 @@ class LatexToSymjaTranspiler {
                             } else "x"
                             MathExpr.Derivative(MathExpr.Symbol(name), indep, primes)
                         }
-                        accept(Kind.LP) -> {
+                        accept(Kind.LP) || accept(Kind.LB) -> {
+                            val closing = if (previous().kind == Kind.LB) Kind.RB else Kind.RP
                             when (name) {
-                                "u", "step", "unitstep" -> MathExpr.Builtin(MathExpr.Function.UNIT_STEP, arguments(Kind.RP))
-                                "delta", "dirac", "diracdelta" -> MathExpr.Builtin(MathExpr.Function.DIRAC_DELTA, arguments(Kind.RP))
-                                "grad" -> MathExpr.Gradient(arguments(Kind.RP).first(), listOf("x", "y", "z"))
-                                "div" -> MathExpr.Divergence(arguments(Kind.RP).first(), listOf("x", "y", "z"))
-                                "curl" -> MathExpr.Curl(arguments(Kind.RP).first(), listOf("x", "y", "z"))
-                                "laplace" -> MathExpr.LaplaceTransform(arguments(Kind.RP).first(), "t", "s")
-                                "ilaplace" -> MathExpr.InverseLaplaceTransform(arguments(Kind.RP).first(), "s", "t")
-                                "ztrans" -> MathExpr.ZTransform(arguments(Kind.RP).first(), "n", "z")
+                                "u", "step", "unitstep" -> MathExpr.Builtin(MathExpr.Function.UNIT_STEP, arguments(closing))
+                                "delta", "dirac", "diracdelta" -> MathExpr.Builtin(MathExpr.Function.DIRAC_DELTA, arguments(closing))
+                                "grad" -> MathExpr.Gradient(arguments(closing).first(), listOf("x", "y", "z"))
+                                "div" -> MathExpr.Divergence(arguments(closing).first(), listOf("x", "y", "z"))
+                                "curl" -> MathExpr.Curl(arguments(closing).first(), listOf("x", "y", "z"))
+                                "laplace" -> MathExpr.LaplaceTransform(arguments(closing).first(), "t", "s")
+                                "ilaplace" -> MathExpr.InverseLaplaceTransform(arguments(closing).first(), "s", "t")
+                                "ztrans" -> MathExpr.ZTransform(arguments(closing).first(), "n", "z")
                                 "taylor", "series" -> {
                                     at--
                                     parseTaylorSeries()
                                 }
-                                else -> MathExpr.Call(name, arguments(Kind.RP))
+                                else -> MathExpr.Call(name, arguments(closing))
                             }
                         }
                         accept(Kind.LS) -> {
