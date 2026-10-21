@@ -1,0 +1,107 @@
+name: InkMath Android CI & APK Builder
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-test:
+    name: Build APK & Run JUnit Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Python 3.11 & Generate Synthetic ONNX Verification Assets
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Ensure Bundled HMER Vocabulary & Synthetic ONNX Model Assets Exist
+        run: |
+          mkdir -p app/src/main/assets/hmer
+          if [ -f "tools/hmer_export/export_hmer_to_onnx.py" ]; then
+            pip install --quiet onnx numpy
+            python tools/hmer_export/export_hmer_to_onnx.py --mode synthetic --output-dir app/src/main/assets/hmer || true
+          fi
+          ls -la app/src/main/assets/hmer
+
+      - name: Set up Android SDK (API 35)
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Set up Gradle 8.11.1 (Wrapper-Free Cloud Execution)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+          cache-read-only: false
+
+      - name: Run Full JUnit Test Suite (Phases 1-31)
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Upload JUnit HTML Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: InkMath-Unit-Test-Report
+          path: app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
+
+      - name: Generate Ephemeral Release Keystore (if no secret provided)
+        run: |
+          keytool -genkeypair -v \
+            -keystore inkmath-release.jks \
+            -alias inkmath \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass inkmath123 \
+            -keypass inkmath123 \
+            -dname "CN=InkMath Offline, OU=Engineering, O=InkMath, L=Hyderabad, S=TS, C=IN"
+
+      - name: Assemble Signed Debug & Release APKs
+        env:
+          KEYSTORE_FILE: ${{ github.workspace }}/inkmath-release.jks
+          KEYSTORE_PASSWORD: inkmath123
+          KEY_ALIAS: inkmath
+          KEY_PASSWORD: inkmath123
+        run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Upload Installable Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: InkMath-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      - name: Upload Installable Signed Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: InkMath-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: Publish GitHub Release on Tag (`v*`)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
