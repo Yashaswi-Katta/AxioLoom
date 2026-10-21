@@ -55,10 +55,15 @@ android {
                 "META-INF/NOTICE*",
                 "META-INF/INDEX.LIST",
                 "META-INF/*.kotlin_module",
-                "META-INF/versions/9/module-info.class"
+                "META-INF/versions/9/module-info.class",
+                "META-INF/ASL2.0",
+                "META-INF/AL2.0",
+                "META-INF/LGPL2.1"
             )
             pickFirsts += setOf(
-                "META-INF/log4j-provider.properties"
+                "META-INF/log4j-provider.properties",
+                "graphml.xsd",
+                "**/*.xsd"
             )
         }
     }
