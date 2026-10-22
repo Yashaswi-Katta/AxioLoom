@@ -75,7 +75,8 @@ class NotebookRepository(private val context: Context) {
 
     fun getActivePageId(): UUID = synchronized(lock) {
         val (pages, activeId) = readIndex()
-        if (pages.any { it.id == activeId }) activeId else pages.first().id
+        if (pages.any { it.id == activeId }) activeId
+        else pages.firstOrNull()?.id ?: createPage("Main Notebook").id
     }
 
     fun setActivePageId(id: UUID) = synchronized(lock) {
@@ -325,24 +326,38 @@ class NotebookRepository(private val context: Context) {
     }
 
     private fun readIndex(): Pair<List<NotebookPageMeta>, UUID> {
-        if (!indexFile.exists() || indexFile.length() == 0L) {
-            ensureInitialized()
+        try {
+            if (!indexFile.exists() || indexFile.length() == 0L) {
+                ensureInitialized()
+            }
+            val text = indexFile.readText(Charsets.UTF_8)
+            val root = JSONObject(text)
+            val activeIdStr = root.optString("activeId", "")
+            val activeId = if (activeIdStr.isNotBlank()) runCatching { UUID.fromString(activeIdStr) }.getOrNull() ?: UUID.randomUUID() else UUID.randomUUID()
+            val pagesArray = root.optJSONArray("pages") ?: JSONArray()
+            val pages = mutableListOf<NotebookPageMeta>()
+            for (i in 0 until pagesArray.length()) {
+                val obj = pagesArray.optJSONObject(i) ?: continue
+                val idStr = obj.optString("id", "")
+                val id = runCatching { UUID.fromString(idStr) }.getOrNull() ?: continue
+                pages += NotebookPageMeta(
+                    id = id,
+                    title = obj.optString("title", "Untitled"),
+                    updatedAtMillis = obj.optLong("updatedAtMillis", System.currentTimeMillis()),
+                    blockCount = obj.optInt("blockCount", 0)
+                )
+            }
+            if (pages.isEmpty()) {
+                val defaultPage = NotebookPageMeta(UUID.randomUUID(), "Main Notebook", System.currentTimeMillis(), 0)
+                writeIndex(listOf(defaultPage), defaultPage.id)
+                return listOf(defaultPage) to defaultPage.id
+            }
+            return pages to activeId
+        } catch (_: Exception) {
+            val defaultPage = NotebookPageMeta(UUID.randomUUID(), "Main Notebook", System.currentTimeMillis(), 0)
+            runCatching { writeIndex(listOf(defaultPage), defaultPage.id) }
+            return listOf(defaultPage) to defaultPage.id
         }
-        val text = indexFile.readText(Charsets.UTF_8)
-        val root = JSONObject(text)
-        val activeId = UUID.fromString(root.optString("activeId", UUID.randomUUID().toString()))
-        val pagesArray = root.getJSONArray("pages")
-        val pages = mutableListOf<NotebookPageMeta>()
-        for (i in 0 until pagesArray.length()) {
-            val obj = pagesArray.getJSONObject(i)
-            pages += NotebookPageMeta(
-                id = UUID.fromString(obj.getString("id")),
-                title = obj.getString("title"),
-                updatedAtMillis = obj.getLong("updatedAtMillis"),
-                blockCount = obj.optInt("blockCount", 0)
-            )
-        }
-        return pages to activeId
     }
 
     private fun writeIndex(pages: List<NotebookPageMeta>, activeId: UUID) {

@@ -92,7 +92,7 @@ private class InkInputLayout(
     var onDoubleTapWorld: (screen: Offset, world: Offset) -> Unit
 ) : FrameLayout(context) {
     private val inkView = InProgressStrokesView(context)
-    private val predictor = MotionEventPredictor.newInstance(this)
+    private val predictor = runCatching { MotionEventPredictor.newInstance(this) }.getOrNull()
     private val activeStrokes = linkedMapOf<Int, InProgressStrokeId>()
     private val fingerStrokePointers = mutableSetOf<Int>()
     private val previousFingerPositions = linkedMapOf<Int, Offset>()
@@ -276,7 +276,7 @@ private class InkInputLayout(
         }
 
         // Mode 3: Draw Tool (Original Jetpack Ink low-latency drawing & 2-finger pan/zoom)
-        predictor.record(event)
+        predictor?.record(event)
         gestureDetector.onTouchEvent(event)
         if (suppressCurrentGesture) {
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -326,7 +326,7 @@ private class InkInputLayout(
             }
             MotionEvent.ACTION_MOVE -> {
                 if (activeStrokes.isNotEmpty()) {
-                    val predicted = predictor.predict()
+                    val predicted = predictor?.predict()
                     try {
                         activeStrokes.forEach { (pointerId, strokeId) ->
                             inkView.addToStroke(event, pointerId, strokeId, predicted)

@@ -33,7 +33,7 @@ fun DryInkCanvas(
     dimensionalWarnings: Map<java.util.UUID, List<com.offline.inkmath.domain.units.DimensionalMismatchWarning>> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
-    val strokeRenderer = remember { CanvasStrokeRenderer.create() }
+    val strokeRenderer = remember { runCatching { CanvasStrokeRenderer.create() }.getOrNull() }
     val latexRenderer = remember { LatexCanvasRenderer() }
 
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -80,7 +80,11 @@ fun DryInkCanvas(
                         )
                     } else {
                         block.strokes.forEach { timedStroke ->
-                            strokeRenderer.draw(canvas, timedStroke.stroke, AffineTransform.IDENTITY)
+                            if (strokeRenderer != null) {
+                                strokeRenderer.draw(canvas, timedStroke.stroke, AffineTransform.IDENTITY)
+                            } else {
+                                drawFallbackStroke(canvas, timedStroke)
+                            }
                         }
                     }
 
@@ -174,4 +178,22 @@ fun DryInkCanvas(
             }
         }
     }
+}
+
+private fun drawFallbackStroke(canvas: android.graphics.Canvas, timedStroke: com.offline.inkmath.domain.model.TimedStroke) {
+    val pts = timedStroke.geometry.points
+    if (pts.size < 2) return
+    val path = android.graphics.Path()
+    path.moveTo(pts[0].x, pts[0].y)
+    for (i in 1 until pts.size) {
+        path.lineTo(pts[i].x, pts[i].y)
+    }
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3.5f
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    canvas.drawPath(path, paint)
 }

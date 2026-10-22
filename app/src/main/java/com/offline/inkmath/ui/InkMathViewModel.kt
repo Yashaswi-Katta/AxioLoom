@@ -123,16 +123,22 @@ class InkMathViewModel(application: Application) : AndroidViewModel(application)
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val allPages = notebookRepo.listPages()
-            mutablePages.value = allPages
-            val activeId = notebookRepo.getActivePageId()
-            val activeMeta = allPages.firstOrNull { it.id == activeId } ?: allPages.first()
-            mutableCurrentPage.value = activeMeta
+            try {
+                val allPages = notebookRepo.listPages()
+                mutablePages.value = allPages
+                val activeId = notebookRepo.getActivePageId()
+                val activeMeta = allPages.firstOrNull { it.id == activeId }
+                    ?: allPages.firstOrNull()
+                    ?: notebookRepo.createPage("Main Notebook")
+                mutableCurrentPage.value = activeMeta
 
-            val restored = notebookRepo.loadPage(activeMeta.id, parser, graph)
-            if (restored != null && restored.strokes.isNotEmpty()) {
-                mutableInkWorkspace.value = restored
-                updateCanUndoRedo()
+                val restored = notebookRepo.loadPage(activeMeta.id, parser, graph)
+                if (restored != null && restored.strokes.isNotEmpty()) {
+                    mutableInkWorkspace.value = restored
+                    updateCanUndoRedo()
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("InkMathViewModel", "Error loading initial page", e)
             }
         }
     }
