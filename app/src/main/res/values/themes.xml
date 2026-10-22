@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.InkMath" parent="@android:style/Theme.Material.NoActionBar">
+    <style name="Theme.AxioLoom" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:statusBarColor">#121417</item>
         <item name="android:navigationBarColor">#121417</item>
         <item name="android:windowBackground">#121417</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
     </style>
 </resources>

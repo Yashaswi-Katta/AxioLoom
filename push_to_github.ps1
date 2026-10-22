@@ -1,10 +1,10 @@
-# InkblotOmega — Push to GitHub and Trigger Zero-Local-SDK Cloud Build
+# AxioLoom — Push to GitHub and Trigger Zero-Local-SDK Cloud Build
 # Run this script in PowerShell to push to GitHub and produce installable APKs via GitHub Actions.
 
 $ErrorActionPreference = "Stop"
 
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host "   InkMath v2.0 - Push to GitHub & Cloud CI/CD Build Trigger    " -ForegroundColor Cyan
+Write-Host "   AxioLoom v2.0 - Push to GitHub & Cloud CI/CD Build Trigger    " -ForegroundColor Cyan
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -36,7 +36,7 @@ if (-not $existingRemote) {
     Write-Host ""
     Write-Host "[2/5] No 'origin' remote found." -ForegroundColor Yellow
     Write-Host "Please create an empty repository on GitHub (e.g. at https://github.com/new)." -ForegroundColor Yellow
-    $remoteUrl = Read-Host "Enter your GitHub repository URL (e.g. https://github.com/<username>/InkblotOmega.git)"
+    $remoteUrl = Read-Host "Enter your GitHub repository URL (e.g. https://github.com/<username>/AxioLoom.git)"
     
     if ([string]::IsNullOrWhiteSpace($remoteUrl)) {
         Write-Host "No remote URL provided. Exiting." -ForegroundColor Red
@@ -56,7 +56,7 @@ git add .
 $status = git status --porcelain
 if ($status) {
     Write-Host "[4/5] Committing changes..." -ForegroundColor Green
-    git commit -m "Complete InkMath v2.0: Offline Engineering CAS, HMER, CI/CD Cloud Pipeline, and Signed APK Release"
+    git commit -m "Complete AxioLoom v2.0: Offline Engineering CAS, HMER, CI/CD Cloud Pipeline, and Signed APK Release"
 } else {
     Write-Host "[4/5] Working tree is clean. Nothing to commit." -ForegroundColor Green
 }
@@ -83,7 +83,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "  3. Download installable APKs:"
     Write-Host "     - Once the workflow finishes (~3-5 mins), scroll to the bottom of the"
-    Write-Host "       workflow run page to find the 'inkmath-apks' artifact ZIP."
+    Write-Host "       workflow run page to find the 'axioloom-apks' artifact ZIP."
     Write-Host "     - Extract and install app-release.apk directly on any Android device."
     Write-Host ""
     Write-Host "  4. Publish a GitHub Release with APK assets:"

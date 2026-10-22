@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-InkMath HMER ONNX Model Exporter & Synthetic Model Generator
+AxioLoom HMER ONNX Model Exporter & Synthetic Model Generator
 Phase 5 Engineering Tooling
 
 Usage:
@@ -108,7 +108,7 @@ def build_synthetic_encoder(output_path):
         initializer=[conv_w_init, conv_b_init]
     )
 
-    model = helper.make_model(graph, producer_name="InkMath-Exporter", opset_imports=[helper.make_opsetid("", 16)])
+    model = helper.make_model(graph, producer_name="AxioLoom-Exporter", opset_imports=[helper.make_opsetid("", 16)])
     onnx.checker.check_model(model)
     onnx.save(model, output_path)
     print(f"[+] Saved synthetic encoder ONNX to {output_path}")
@@ -193,7 +193,7 @@ def build_synthetic_decoder(output_path, vocab_size=len(DEFAULT_VOCAB)):
         initializer=[delta_init, base_logits_init, one_init, slice_start, slice_end, slice_axes]
     )
 
-    model = helper.make_model(graph, producer_name="InkMath-Exporter", opset_imports=[helper.make_opsetid("", 16)])
+    model = helper.make_model(graph, producer_name="AxioLoom-Exporter", opset_imports=[helper.make_opsetid("", 16)])
     onnx.checker.check_model(model)
     onnx.save(model, output_path)
     print(f"[+] Saved synthetic decoder ONNX to {output_path}")
@@ -240,7 +240,7 @@ def export_production_checkpoint(mode, checkpoint_path, output_dir, quantize=Fal
 
 
 def main():
-    parser = argparse.ArgumentParser(description="InkMath Phase 5 HMER ONNX Exporter")
+    parser = argparse.ArgumentParser(description="AxioLoom Phase 5 HMER ONNX Exporter")
     parser.add_argument("--mode", choices=["synthetic", "comer", "can"], default="synthetic",
                         help="Export mode: 'synthetic' for zero-weight verification or 'comer'/'can' for checkpoints.")
     parser.add_argument("--output_dir", "--output-dir", default="../../app/src/main/assets/hmer",

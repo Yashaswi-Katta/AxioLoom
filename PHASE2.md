@@ -1,4 +1,4 @@
-# InkMath Phase 2 — spatial ink foundation
+# AxioLoom Phase 2 — spatial ink foundation
 
 This adds the geometry and rasterization layer to the Phase 1 core. No HMER model, UI, WebView, network permission, or recognition service is introduced in this phase.
 

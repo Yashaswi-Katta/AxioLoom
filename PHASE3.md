@@ -1,4 +1,4 @@
-# InkMath Phase 3 — Offline HMER inference
+# AxioLoom Phase 3 — Offline HMER inference
 
 ## Added
 

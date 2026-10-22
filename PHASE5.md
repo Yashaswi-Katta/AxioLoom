@@ -1,13 +1,13 @@
 # Phase 5 — Undo/Redo, Persistence, Multi-Variable Solves, Grammar, Plotting & ONNX Tooling
 
-Phase 5 completes the feature set of InkMath, making workspaces persistent across process restarts, fully undoable/redoable, mathematically expanded, visually interactive with a 2D function plotter, and verifiable via offline ONNX export tooling.
+Phase 5 completes the feature set of AxioLoom, making workspaces persistent across process restarts, fully undoable/redoable, mathematically expanded, visually interactive with a 2D function plotter, and verifiable via offline ONNX export tooling.
 
 ## Deliverables
 
 1. **Multi-Level Undo/Redo History (`domain/clustering/WorkspaceHistoryManager.kt`)**
    - Bounded deques (`maxDepth = 50`) tracking immutable `InkWorkspaceState` snapshots.
    - Computes `WorkspaceDiff` on undo and redo by comparing `(block.id, block.revision)` pairs.
-   - Connected to `InkMathViewModel.canUndo`, `canRedo`, `undo()`, and `redo()`.
+   - Connected to `AxioLoomViewModel.canUndo`, `canRedo`, `undo()`, and `redo()`.
    - Restores cached block intents into `ReactiveSymbolGraph` immediately without re-triggering HMER recognition debounces.
    - Exposed via **Undo** and **Redo** top bar controls in `MathWorkspaceScreen`.
 

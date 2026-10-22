@@ -14,7 +14,7 @@
 
 2. **Lasso Selection, Block Translation & Tool Modes (`domain/model/TimedStroke.kt` & `ui/canvas/WetInkOverlay.kt`)**
    - `TimedStroke.translate(dx, dy)`: shifts stroke coordinates, bounds, and centerline while keeping immutable stroke ID and timestamps intact.
-   - `InkMathViewModel.moveBlock(blockId, deltaWorld)`: translates blocks in real time without triggering redundant HMER re-recognition.
+   - `AxioLoomViewModel.moveBlock(blockId, deltaWorld)`: translates blocks in real time without triggering redundant HMER re-recognition.
    - Interactive `CanvasToolMode` toggle in top toolbar:
      - **`Draw`**: Low-latency Jetpack Ink stroke writing with stylus or single finger.
      - **`Select / Move`**: Real-time dragging of selected blocks across the canvas or canvas panning when dragging on empty space.

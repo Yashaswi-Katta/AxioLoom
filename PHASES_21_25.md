@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phases 21 through 25 mark the **v1.0 Production Completion** of **InkMath** (`com.offline.inkmath`), bringing the application to a fully featured, offline mathematical workbench with hardware stylus ergonomics, spatial regression, 3D visualization, camera math binarization, and adaptive dual-pane tablet productivity.
+Phases 21 through 25 mark the **v1.0 Production Completion** of **AxioLoom** (`com.axioloom.app`), bringing the application to a fully featured, offline mathematical workbench with hardware stylus ergonomics, spatial regression, 3D visualization, camera math binarization, and adaptive dual-pane tablet productivity.
 
 All foundational architectural invariants remain strictly enforced:
 - **100% Offline Execution**: Zero `android.permission.INTERNET` and zero `WebView` components.
@@ -121,7 +121,7 @@ All foundational architectural invariants remain strictly enforced:
 
 ## Phase 25: Real-Time Performance HUD & Production Verification
 
-### 25.1 Subsystem Telemetry HUD (`ui/canvas/PerformanceOverlayBadge.kt` & `InkMathViewModel.kt`)
+### 25.1 Subsystem Telemetry HUD (`ui/canvas/PerformanceOverlayBadge.kt` & `AxioLoomViewModel.kt`)
 - Live HUD tracking:
   - Spatial Clustering latency ($T_{\text{cluster}}$)
   - Stroke Rasterization latency ($T_{\text{raster}}$)

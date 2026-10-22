@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "InkMath"
+rootProject.name = "AxioLoom"
 include(":app")

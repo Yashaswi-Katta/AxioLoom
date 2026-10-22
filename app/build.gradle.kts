@@ -5,18 +5,18 @@ plugins {
 }
 
 android {
-    namespace = "com.offline.inkmath"
+    namespace = "com.axioloom.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.offline.inkmath"
+        applicationId = "com.axioloom.app"
         minSdk = 28
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        targetSdk = 34
+        versionCode = 2
+        versionName = "2.1.2"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         }
     }
 
@@ -25,9 +25,9 @@ android {
             val keystorePath = System.getenv("KEYSTORE_FILE")
             if (keystorePath != null && file(keystorePath).exists()) {
                 storeFile = file(keystorePath)
-                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "inkmath123"
-                keyAlias = System.getenv("KEY_ALIAS") ?: "inkmath"
-                keyPassword = System.getenv("KEY_PASSWORD") ?: "inkmath123"
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "axioloom123"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "axioloom"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: "axioloom123"
             } else {
                 // Fallback to debug signing config so release APK is always signed and installable
                 initWith(getByName("debug"))

@@ -1,8 +1,8 @@
-# Phases 26–30 Implementation Guide — InkMath v2.0 Hardware & Embedded Systems Expansion
+# Phases 26–30 Implementation Guide — AxioLoom v2.0 Hardware & Embedded Systems Expansion
 
 ## Overview
 
-Phases 26 through 30 bring **InkMath** (`com.offline.inkmath`) to **v2.0**, introducing the **Hardware & Embedded Systems Expansion**. This turns InkMath from a mathematical scratchpad into an end-to-end engineering workbench capable of hand-drawn circuit schematic capture, automatic firmware synthesis for embedded microcontrollers (C99, Arduino, ESP32), numerical non-linear ODE state-space simulation, dimensional unit consistency verification, and classic feedback control system stability analysis (Root-Locus and Nyquist).
+Phases 26 through 30 bring **AxioLoom** (`com.axioloom.app`) to **v2.0**, introducing the **Hardware & Embedded Systems Expansion**. This turns AxioLoom from a mathematical scratchpad into an end-to-end engineering workbench capable of hand-drawn circuit schematic capture, automatic firmware synthesis for embedded microcontrollers (C99, Arduino, ESP32), numerical non-linear ODE state-space simulation, dimensional unit consistency verification, and classic feedback control system stability analysis (Root-Locus and Nyquist).
 
 All foundational architectural invariants remain strictly enforced:
 - **100% Offline Execution**: Zero `android.permission.INTERNET` and zero `WebView` components.
@@ -159,7 +159,7 @@ All foundational architectural invariants remain strictly enforced:
 
 ## Phase 26–30 Automated Test Verification (`Phase26To30V2Test.kt`)
 
-The complete Phase 26–30 test suite is implemented in `app/src/test/java/com/offline/inkmath/domain/Phase26To30V2Test.kt` with 5 targeted tests:
+The complete Phase 26–30 test suite is implemented in `app/src/test/java/com/axioloom/app/domain/Phase26To30V2Test.kt` with 5 targeted tests:
 
 1. `schematicStrokeRecognizerClassifiesResistorCapacitorAndGround`: Verifies zig-zag lateral peak counting for resistors, parallel stroke gap detection for capacitors, 3-bar stacking for ground, wire connectivity, and Disjoint-Set Union-Find terminal clustering into Node 0.
 2. `bilinearDiscretizerAndEmbeddedCGeneratorEmitValidC99Filter`: Verifies Tustin discretization polynomial expansion, DC gain $H(z=1) = 1.0$, C99 header/source code generation with ring-buffer state structs, Arduino `.ino` driver code, and `MathExpr` AST function generation with `sinf`/`expf`.

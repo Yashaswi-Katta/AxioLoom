@@ -1,4 +1,4 @@
-# ProGuard / R8 Release Hardening for InkMath (100% Offline)
+# ProGuard / R8 Release Hardening for AxioLoom (100% Offline)
 
 -dontwarn java.lang.management.**
 -dontwarn javax.naming.**

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# InkblotOmega — Push to GitHub and Trigger Zero-Local-SDK Cloud Build
+# AxioLoom — Push to GitHub and Trigger Zero-Local-SDK Cloud Build
 # Run this script in Bash / WSL / macOS / Linux to push to GitHub and produce installable APKs via GitHub Actions.
 
 set -e
 
 echo "================================================================="
-echo "   InkMath v2.0 - Push to GitHub & Cloud CI/CD Build Trigger    "
+echo "   AxioLoom v2.0 - Push to GitHub & Cloud CI/CD Build Trigger    "
 echo "================================================================="
 echo ""
 
@@ -31,7 +31,7 @@ if [ -z "$EXISTING_REMOTE" ]; then
     echo ""
     echo "[2/5] No 'origin' remote found."
     echo "Please create an empty repository on GitHub (e.g. at https://github.com/new)."
-    read -rp "Enter your GitHub repository URL (e.g. https://github.com/<username>/InkblotOmega.git): " REMOTE_URL
+    read -rp "Enter your GitHub repository URL (e.g. https://github.com/<username>/AxioLoom.git): " REMOTE_URL
     
     if [ -z "$REMOTE_URL" ]; then
         echo "No remote URL provided. Exiting."
@@ -50,7 +50,7 @@ git add .
 
 if [ -n "$(git status --porcelain)" ]; then
     echo "[4/5] Committing changes..."
-    git commit -m "Complete InkMath v2.0: Offline Engineering CAS, HMER, CI/CD Cloud Pipeline, and Signed APK Release"
+    git commit -m "Complete AxioLoom v2.0: Offline Engineering CAS, HMER, CI/CD Cloud Pipeline, and Signed APK Release"
 else
     echo "[4/5] Working tree is clean. Nothing to commit."
 fi
@@ -76,7 +76,7 @@ echo "     - Assemble both Debug and signed Release APKs"
 echo ""
 echo "  3. Download installable APKs:"
 echo "     - Once the workflow finishes (~3-5 mins), scroll to the bottom of the"
-echo "       workflow run page to find the 'inkmath-apks' artifact ZIP."
+echo "       workflow run page to find the 'axioloom-apks' artifact ZIP."
 echo "     - Extract and install app-release.apk directly on any Android device."
 echo ""
 echo "  4. Publish a GitHub Release with APK assets:"

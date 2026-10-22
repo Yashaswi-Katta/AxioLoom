@@ -1,4 +1,4 @@
-name: InkMath Android CI & APK Builder
+name: AxioLoom Android CI & APK Builder
 
 on:
   push:
@@ -83,41 +83,41 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: InkMath-Unit-Test-Report
+          name: AxioLoom-Unit-Test-Report
           path: app/build/reports/tests/testDebugUnitTest/
           retention-days: 14
 
       - name: Generate Ephemeral Release Keystore (if no secret provided)
         run: |
           keytool -genkeypair -v \
-            -keystore inkmath-release.jks \
-            -alias inkmath \
+            -keystore axioloom-release.jks \
+            -alias axioloom \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -storepass inkmath123 \
-            -keypass inkmath123 \
-            -dname "CN=InkMath Offline, OU=Engineering, O=InkMath, L=Hyderabad, S=TS, C=IN"
+            -storepass axioloom123 \
+            -keypass axioloom123 \
+            -dname "CN=AxioLoom Offline, OU=Engineering, O=AxioLoom, L=Hyderabad, S=TS, C=IN"
 
       - name: Assemble Signed Debug & Release APKs
         env:
-          KEYSTORE_FILE: ${{ github.workspace }}/inkmath-release.jks
-          KEYSTORE_PASSWORD: inkmath123
-          KEY_ALIAS: inkmath
-          KEY_PASSWORD: inkmath123
+          KEYSTORE_FILE: ${{ github.workspace }}/axioloom-release.jks
+          KEYSTORE_PASSWORD: axioloom123
+          KEY_ALIAS: axioloom
+          KEY_PASSWORD: axioloom123
         run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Upload Installable Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: InkMath-Debug-APK
+          name: AxioLoom-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
       - name: Upload Installable Signed Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: InkMath-Release-APK
+          name: AxioLoom-Release-APK
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30
 

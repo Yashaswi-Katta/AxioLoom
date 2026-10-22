@@ -1,8 +1,8 @@
-# InkMath v2.0 Production Release Notes (Phases 1–31 Complete Closeout)
+# AxioLoom v2.0 Production Release Notes (Phases 1–31 Complete Closeout)
 
 ## Executive Summary
 
-**InkMath** (`com.offline.inkmath`) has achieved **v2.0 Production Completion** following the execution of the final master closeout (**Phase 31**). InkMath is a 100% offline Android mathematics and hardware engineering notebook that integrates Google Jetpack Ink vector stroke authoring, spatial expression clustering, on-device handwriting recognition (HMER via ONNX Runtime Mobile with Elastic DTW prototype fallback), a local Computer Algebra System (Symja), and a comprehensive embedded systems workbench (schematic capture, C99/ESP32 code generation, Dormand-Prince RK45 non-linear ODE simulation, SI physical unit consistency verification, and Root-Locus/Nyquist feedback stability design).
+**AxioLoom** (`com.axioloom.app`) has achieved **v2.0 Production Completion** following the execution of the final master closeout (**Phase 31**). AxioLoom is a 100% offline Android mathematics and hardware engineering notebook that integrates Google Jetpack Ink vector stroke authoring, spatial expression clustering, on-device handwriting recognition (HMER via ONNX Runtime Mobile with Elastic DTW prototype fallback), a local Computer Algebra System (Symja), and a comprehensive embedded systems workbench (schematic capture, C99/ESP32 code generation, Dormand-Prince RK45 non-linear ODE simulation, SI physical unit consistency verification, and Root-Locus/Nyquist feedback stability design).
 
 ---
 

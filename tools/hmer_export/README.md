@@ -1,10 +1,10 @@
-# InkMath HMER ONNX Model Export & Verification Tooling
+# AxioLoom HMER ONNX Model Export & Verification Tooling
 
 This directory provides scripts to export Handwritten Mathematical Expression Recognition (HMER) models (e.g., CoMER or CAN) to ONNX Runtime Mobile format, or generate a lightweight zero-weight synthetic model for instantaneous verification of the offline inference pipeline.
 
 ## Overview
 
-The InkMath Android app consumes models adhering to the `HmerModelConfig.EncoderDecoder` contract:
+The AxioLoom Android app consumes models adhering to the `HmerModelConfig.EncoderDecoder` contract:
 
 - **`hmer_vocab.txt`**: Strict line-indexed UTF-8 text file. Token ID is the 0-based line index. First token must be `<sos>`, second `<eos>`.
 - **`hmer_encoder.onnx`**:

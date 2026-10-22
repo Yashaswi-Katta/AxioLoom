@@ -2,7 +2,7 @@
 
 ## Overview of Added Capabilities
 
-Phases 9, 10, and 11 complete the engineering capabilities of **InkMath**, delivering advanced transformation calculus, vector analysis, SI prefixes, step-by-step derivation explanations, beam alternatives disambiguation, and hardware-accelerated release packaging.
+Phases 9, 10, and 11 complete the engineering capabilities of **AxioLoom**, delivering advanced transformation calculus, vector analysis, SI prefixes, step-by-step derivation explanations, beam alternatives disambiguation, and hardware-accelerated release packaging.
 
 ---
 

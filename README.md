@@ -1,6 +1,10 @@
-# InkMath v2.0 — Offline Reactive Ink Scratchpad & Embedded Engineering Workbench
+<p align="center">
+  <img src="assets/branding/axioloom_banner.png" alt="AxioLoom Logo" width="360" />
+</p>
 
-InkMath is a 100% offline Android math workspace that couples Google Jetpack Ink vector stroke authoring with spatial expression clustering, on-device handwriting recognition (HMER via ONNX Runtime Mobile), a local Computer Algebra System (Symja), and a complete hardware/embedded systems engineering suite (schematic synthesis, C99/ESP32 code generation, Dormand-Prince RK45 non-linear ODE simulation, SI dimensional unit checking, and Root-Locus/Nyquist feedback control stability).
+# AxioLoom v2.0 — Offline Reactive Ink Scratchpad & Embedded Engineering Workbench
+
+AxioLoom is a 100% offline Android math workspace that couples Google Jetpack Ink vector stroke authoring with spatial expression clustering, on-device handwriting recognition (HMER via ONNX Runtime Mobile), a local Computer Algebra System (Symja), and a complete hardware/embedded systems engineering suite (schematic synthesis, C99/ESP32 code generation, Dormand-Prince RK45 non-linear ODE simulation, SI dimensional unit checking, and Root-Locus/Nyquist feedback control stability).
 
 ## Complete 31-Phase Application Architecture (v2.0)
 
@@ -29,7 +33,7 @@ The application comprises thirty-one integrated engineering layers:
    - **Wet Ink Overlay**: `WetInkOverlay` wrapping `InProgressStrokesView` with motion prediction, 1-finger handwriting, 2-finger pan/pinch-zoom, and clean long-press gesture handling.
    - **Dry Ink Canvas**: `DryInkCanvas` rendering committed vector strokes and computing warm amber (`#FFB300`) CAS outputs alongside crimson error states using `LatexCanvasRenderer` (`JLatexMathDrawable`).
    - **Viewport Synchronization**: `ViewportState` coordinating scale and translation across wet and dry layers.
-   - **ViewModel**: `InkMathViewModel` orchestrating workspace reduction, recognition pipelines, reactive DAG state, and lifecycle cleanup.
+   - **ViewModel**: `AxioLoomViewModel` orchestrating workspace reduction, recognition pipelines, reactive DAG state, and lifecycle cleanup.
 
 5. **Phase 5 — Undo/Redo, Persistence, Plotting & Extended Math**
    - **History Stack**: `WorkspaceHistoryManager` providing 50-step undo/redo with instant DAG cache restoration.
@@ -81,7 +85,7 @@ The application comprises thirty-one integrated engineering layers:
 14. **Phase 14 — Offline Personal Ink Calibrator & Instrumentation Tests**
     - **Multi-Stroke DTW Classifier**: `SymbolPrototypeClassifier` resampling stroke polylines to $N = 32$ normalized points in $[0, 1]^2$ with Elastic DTW and stroke permutation invariance.
     - **Personal Calibration**: Offline recording and JSON persistence to `user_symbol_prototypes.json` with seamless fallback in `HmerRecognitionCoordinator`.
-    - **Comprehensive Test Suite**: Automated unit tests in `Phase12To14Test.kt` and instrumentation tests in `InkMathInstrumentationTest.kt`.
+    - **Comprehensive Test Suite**: Automated unit tests in `Phase12To14Test.kt` and instrumentation tests in `AxioLoomInstrumentationTest.kt`.
 
 15. **Phase 15 — Symbolic MNA Circuit Solver & Impedance Primitives**
     - **Parallel Impedance Operator**: `\parallel` and `||` with precedence 22 compiled to `((A*B)/(A+B))` in `SymjaCompiler` and evaluated in `<0.2ms`.
@@ -124,7 +128,7 @@ The application comprises thirty-one integrated engineering layers:
     - **Adaptive Sauvola Thresholding**: `ImageMathPreprocessor` computing $O(W \times H)$ single-pass Integral Images $S(x, y)$ and $S_2(x, y)$ with dynamic windowing and polarity detection.
     - **Connected Component Denoiser**: 8-connected component filter discarding noise speckles $< 6\text{px}$.
     - **CROHME Tensor Normalization**: Tight bounding-box crop with aspect ratio padding into normalized $[1, 1, H, W]$ float tensors for onnx HMER.
-    - **Asynchronous Photo Picker**: `rememberLauncherForActivityResult` loading camera/gallery images into `InkMathViewModel.importImageBitmap`.
+    - **Asynchronous Photo Picker**: `rememberLauncherForActivityResult` loading camera/gallery images into `AxioLoomViewModel.importImageBitmap`.
 
 24. **Phase 24 — Hardware Stylus Ergonomics & Adaptive Tablet Workspace**
     - **Hardware Stylus Ergonomics**: S-Pen / active stylus barrel button instant eraser (`MotionEvent.BUTTON_STYLUS_PRIMARY`), hover reticle preview (`ACTION_HOVER_MOVE`), and double-tap canvas detection.
