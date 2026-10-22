@@ -35,7 +35,7 @@ class OfflineCasEngine : Closeable {
             runCatching {
                 Config.JAS_NO_THREADS = true
                 Config.JAVA_AWT_DESKTOP_AVAILABLE = false
-                F.initSymbols()
+                Config.FILESYSTEM_ENABLED = false
                 configured = true
             }.onFailure { error ->
                 android.util.Log.w("OfflineCasEngine", "Failed during Symja Android static pre-configuration", error)
@@ -60,7 +60,8 @@ class OfflineCasEngine : Closeable {
                 ExprEvaluator(false, 100.toShort()).also { evaluatorInstance = it }
             } catch (t: Throwable) {
                 android.util.Log.e("OfflineCasEngine", "Failed to initialize ExprEvaluator", t)
-                throw CasEvaluationException("Failed to initialize offline CAS engine: ${t.message ?: t.javaClass.simpleName}", t)
+                val detail = t.cause?.message ?: t.message ?: t.javaClass.simpleName
+                throw CasEvaluationException("Failed to initialize offline CAS engine: $detail", t)
             }
         }
     }
@@ -70,11 +71,14 @@ class OfflineCasEngine : Closeable {
             val active = getEvaluator()
             val engine = active.evalEngine
             EvalEngine.set(engine)
-            check(active.eval("1+1").toString() == "2") { "Symja warm-up self-check failed" }
+            val res = active.eval("1+1").toString()
+            check(res == "2") { "Symja warm-up check expected '2', got '$res'" }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
-            throw CasEvaluationException("Offline CAS initialization failed", failure)
+            android.util.Log.e("OfflineCasEngine", "Offline CAS warmUp failed", failure)
+            val detail = failure.cause?.message ?: failure.message ?: failure.javaClass.simpleName
+            throw CasEvaluationException("Offline CAS initialization failed: $detail", failure)
         }
     }
 

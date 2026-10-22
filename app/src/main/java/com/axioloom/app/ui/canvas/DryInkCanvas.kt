@@ -19,8 +19,12 @@ import com.axioloom.app.domain.model.BlockStatus
 import com.axioloom.app.domain.model.touches
 import com.axioloom.app.domain.clustering.InkWorkspaceState
 import com.axioloom.app.ui.renderer.LatexCanvasRenderer
+import com.axioloom.app.ui.theme.UmbraColors
 
-/** Renders completed vector strokes and CAS output in the same workspace coordinate system. */
+/**
+ * Renders completed vector strokes, mathematical expressions, and engineering overlays
+ * in the Umbra technical canvas coordinate system with dot-matrix grid and corner L-brackets.
+ */
 @Composable
 fun DryInkCanvas(
     workspace: InkWorkspaceState,
@@ -37,15 +41,18 @@ fun DryInkCanvas(
     val latexRenderer = remember { LatexCanvasRenderer() }
 
     Canvas(modifier = modifier.fillMaxSize()) {
-        drawRect(Color(0xFF121417))
-        val gridStep = if (viewport.scale < 0.6f) 56f else 28f
+        // Umbra Recessed Graphite Canvas Background
+        drawRect(UmbraColors.BgRecessed)
+
+        // Architectural Micro-Dot Matrix Grid
+        val gridStep = if (viewport.scale < 0.6f) 48f else 24f
         val startX = ((viewport.translation.x % gridStep) + gridStep) % gridStep
         val startY = ((viewport.translation.y % gridStep) + gridStep) % gridStep
         var y = startY
         while (y < size.height) {
             var x = startX
             while (x < size.width) {
-                drawCircle(Color(0xFF252A31), radius = 1.1f, center = Offset(x, y))
+                drawCircle(UmbraColors.GridDot, radius = 1.0f, center = Offset(x, y))
                 x += gridStep
             }
             y += gridStep
@@ -96,23 +103,40 @@ fun DryInkCanvas(
                     val graphBlock = graph.blocks[block.id]
                     val status = graphBlock?.status ?: block.status
                     val result = graphBlock?.result ?: block.result
-                    val boxColor = when {
-                        block.id == selectedBlockId -> android.graphics.Color.rgb(255, 179, 0)
-                        status is BlockStatus.Error -> android.graphics.Color.rgb(220, 20, 60)
-                        status is BlockStatus.Ready -> android.graphics.Color.rgb(120, 130, 145)
-                        else -> android.graphics.Color.rgb(90, 100, 114)
+
+                    // Umbra Corner L-Brackets & Framing
+                    val bracketColor = when {
+                        block.id == selectedBlockId -> android.graphics.Color.rgb(245, 180, 89) // Amber Accent
+                        status is BlockStatus.Error -> android.graphics.Color.rgb(212, 81, 92)  // Crimson
+                        status is BlockStatus.Ready -> android.graphics.Color.rgb(82, 84, 88)   // Grid Crosshair
+                        else -> android.graphics.Color.rgb(43, 44, 48)                          // Subtle Hairline
                     }
-                    val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = boxColor
+                    val bracketPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = bracketColor
                         style = Paint.Style.STROKE
-                        strokeWidth = 1.4f / viewport.scale
+                        strokeWidth = (if (block.id == selectedBlockId) 1.8f else 1.2f) / viewport.scale
                     }
-                    canvas.drawRoundRect(
-                        RectF(bounds.left, bounds.top, bounds.right, bounds.bottom),
-                        7f / viewport.scale,
-                        7f / viewport.scale,
-                        boxPaint
-                    )
+
+                    // Render technical L-bracket registration ticks
+                    val arm = 8f / viewport.scale
+                    val pad = 4f / viewport.scale
+                    val l = bounds.left - pad
+                    val t = bounds.top - pad
+                    val r = bounds.right + pad
+                    val b = bounds.bottom + pad
+
+                    // Top-left
+                    canvas.drawLine(l, t + arm, l, t, bracketPaint)
+                    canvas.drawLine(l, t, l + arm, t, bracketPaint)
+                    // Top-right
+                    canvas.drawLine(r - arm, t, r, t, bracketPaint)
+                    canvas.drawLine(r, t, r, t + arm, bracketPaint)
+                    // Bottom-left
+                    canvas.drawLine(l, b - arm, l, b, bracketPaint)
+                    canvas.drawLine(l, b, l + arm, b, bracketPaint)
+                    // Bottom-right
+                    canvas.drawLine(r - arm, b, r, b, bracketPaint)
+                    canvas.drawLine(r, b, r, b - arm, bracketPaint)
 
                     val fastOverride = fastNumericOverrides[block.id]
                     val resultLatex = if (fastOverride != null) "= ${fastOverride.formattedPreview}" else result?.latex
@@ -126,7 +150,7 @@ fun DryInkCanvas(
                             left = left,
                             centerY = centerY,
                             targetHeight = block.medianStrokeHeight.coerceAtLeast(24f),
-                            color = android.graphics.Color.rgb(255, 179, 0)
+                            color = android.graphics.Color.rgb(245, 180, 89)
                         )
                     }
 
@@ -135,7 +159,7 @@ fun DryInkCanvas(
                     if (!warnings.isNullOrEmpty()) {
                         val warningText = "[!] ${warnings.first().message}"
                         val warnPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                            color = android.graphics.Color.rgb(220, 20, 60) // Crimson Red
+                            color = android.graphics.Color.rgb(212, 81, 92) // Crimson
                             textSize = 12f / viewport.scale
                             typeface = android.graphics.Typeface.MONOSPACE
                         }
@@ -146,35 +170,34 @@ fun DryInkCanvas(
                 // Render Schematic Node Voltages from MNA Solver
                 if (activeSchematic != null && mnaResult != null) {
                     val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = android.graphics.Color.argb(220, 25, 29, 34)
+                        color = android.graphics.Color.argb(235, 14, 15, 17)
                         style = Paint.Style.FILL
                     }
                     val badgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = android.graphics.Color.rgb(255, 179, 0) // Amber
+                        color = android.graphics.Color.rgb(245, 180, 89) // Amber
                         style = Paint.Style.STROKE
-                        strokeWidth = 1.5f / viewport.scale
+                        strokeWidth = 1.2f / viewport.scale
                     }
                     val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = android.graphics.Color.rgb(255, 213, 79) // Gold
-                        textSize = 13f / viewport.scale
+                        color = android.graphics.Color.rgb(234, 234, 234)
+                        textSize = 12f / viewport.scale
                         typeface = android.graphics.Typeface.MONOSPACE
-                        isFakeBoldText = true
                     }
 
                     for ((nodeId, pos) in activeSchematic.nodePositions) {
                         val vStr = mnaResult.nodeVoltages[nodeId] ?: if (nodeId == 0) "0 V" else "V$nodeId"
                         val label = "V$nodeId: $vStr"
                         val textWidth = badgeTextPaint.measureText(label)
-                        val textHeight = 14f / viewport.scale
-                        val padding = 6f / viewport.scale
+                        val textHeight = 13f / viewport.scale
+                        val padding = 5f / viewport.scale
 
                         val bLeft = pos.x + 8f
                         val bTop = pos.y - textHeight - padding * 2
                         val bRight = bLeft + textWidth + padding * 2
                         val bBottom = pos.y
 
-                        canvas.drawRoundRect(RectF(bLeft, bTop, bRight, bBottom), 4f, 4f, badgeBgPaint)
-                        canvas.drawRoundRect(RectF(bLeft, bTop, bRight, bBottom), 4f, 4f, badgeBorderPaint)
+                        canvas.drawRect(RectF(bLeft, bTop, bRight, bBottom), badgeBgPaint)
+                        canvas.drawRect(RectF(bLeft, bTop, bRight, bBottom), badgeBorderPaint)
                         canvas.drawText(label, bLeft + padding, bBottom - padding - 2f, badgeTextPaint)
                     }
                 }

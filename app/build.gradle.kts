@@ -110,10 +110,10 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 
     implementation("org.matheclipse:matheclipse-core:3.0.0") {
+        exclude(group = "org.apache.logging.log4j", module = "log4j-core")
         exclude(group = "com.google.guava", module = "guava")
     }
     implementation("org.apache.logging.log4j:log4j-api:2.24.1")
-    implementation("org.apache.logging.log4j:log4j-core:2.24.1")
     implementation("com.google.guava:guava:33.3.1-android")
 
     implementation("ru.noties:jlatexmath-android:0.2.0")
