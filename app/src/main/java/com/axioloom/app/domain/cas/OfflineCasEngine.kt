@@ -10,9 +10,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
+import org.matheclipse.core.basic.Config
 import org.matheclipse.core.eval.EvalEngine
 import org.matheclipse.core.eval.ExprEvaluator
 import org.matheclipse.core.eval.TeXUtilities
+import org.matheclipse.core.expression.F
 import java.io.Closeable
 import java.io.StringWriter
 import java.util.concurrent.Executors
@@ -24,20 +26,54 @@ class CasEvaluationException(message: String, cause: Throwable? = null) : Runtim
  * accepted; HMER text is never handed to Symja's parser directly.
  */
 class OfflineCasEngine : Closeable {
+    companion object {
+        private var configured = false
+
+        @Synchronized
+        fun configureSymjaForAndroid() {
+            if (configured) return
+            runCatching {
+                Config.JAS_NO_THREADS = true
+                Config.JAVA_AWT_DESKTOP_AVAILABLE = false
+                F.initSymbols()
+                configured = true
+            }.onFailure { error ->
+                android.util.Log.w("OfflineCasEngine", "Failed during Symja Android static pre-configuration", error)
+            }
+        }
+    }
+
     private val executor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "AxioLoom-Symja").apply { isDaemon = true }
     }
     private val dispatcher: CoroutineDispatcher = executor.asCoroutineDispatcher()
-    private val evaluator: ExprEvaluator by lazy(LazyThreadSafetyMode.NONE) {
-        ExprEvaluator(false, 100.toShort())
+
+    @Volatile
+    private var evaluatorInstance: ExprEvaluator? = null
+
+    private fun getEvaluator(): ExprEvaluator {
+        evaluatorInstance?.let { return it }
+        synchronized(this) {
+            evaluatorInstance?.let { return it }
+            configureSymjaForAndroid()
+            return try {
+                ExprEvaluator(false, 100.toShort()).also { evaluatorInstance = it }
+            } catch (t: Throwable) {
+                android.util.Log.e("OfflineCasEngine", "Failed to initialize ExprEvaluator", t)
+                throw CasEvaluationException("Failed to initialize offline CAS engine: ${t.message ?: t.javaClass.simpleName}", t)
+            }
+        }
     }
 
     suspend fun warmUp() = withContext(dispatcher) {
         try {
-            val engine = evaluator.evalEngine
+            val active = getEvaluator()
+            val engine = active.evalEngine
             EvalEngine.set(engine)
-            check(evaluator.eval("1+1").toString() == "2") { "Symja warm-up self-check failed" }
-        } catch (failure: Exception) {
+            check(active.eval("1+1").toString() == "2") { "Symja warm-up self-check failed" }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
             throw CasEvaluationException("Offline CAS initialization failed", failure)
         }
     }
@@ -63,7 +99,7 @@ class OfflineCasEngine : Closeable {
                 SymbolicTransform.TAYLOR_SERIES -> "Normal(Series(${compiled.command},{If(Length(Variables(${compiled.command}))>0,Variables(${compiled.command})[[1]],x),0,5}))"
             }
             val command = if (approximate) "N($baseCommand,6)" else baseCommand
-            val active = evaluator
+            val active = getEvaluator()
             EvalEngine.set(active.evalEngine)
             val result = active.eval(command)
             val writer = StringWriter()
@@ -74,7 +110,7 @@ class OfflineCasEngine : Closeable {
             CasResult(result.toString(), latex, approximate)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (failure: Exception) {
+        } catch (failure: Throwable) {
             if (failure is CasEvaluationException) throw failure
             throw CasEvaluationException(failure.message ?: "Symja could not evaluate this expression", failure)
         }
@@ -82,19 +118,19 @@ class OfflineCasEngine : Closeable {
 
     suspend fun evalRaw(command: String): String = withContext(dispatcher) {
         try {
-            val active = evaluator
+            val active = getEvaluator()
             EvalEngine.set(active.evalEngine)
             active.eval(command).toString()
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (failure: Exception) {
+        } catch (failure: Throwable) {
             throw CasEvaluationException(failure.message ?: "Evaluation failed: $command", failure)
         }
     }
 
     suspend fun evalCommandToLatex(command: String, aliases: Map<String, String> = emptyMap()): String = withContext(dispatcher) {
         try {
-            val active = evaluator
+            val active = getEvaluator()
             EvalEngine.set(active.evalEngine)
             val result = active.eval(command)
             val writer = StringWriter()
@@ -104,7 +140,7 @@ class OfflineCasEngine : Closeable {
             if (converted && latexOutput.isNotEmpty()) applyLatexAliases(latexOutput, aliases) else result.toString()
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (failure: Exception) {
+        } catch (failure: Throwable) {
             throw CasEvaluationException(failure.message ?: "Evaluation failed", failure)
         }
     }

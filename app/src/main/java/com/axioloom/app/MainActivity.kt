@@ -27,7 +27,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,34 +47,28 @@ import java.io.File
 /** Offline-first launcher for the AxioLoom workspace with fault-tolerant startup & diagnostics. */
 class MainActivity : ComponentActivity() {
     private var axioLoomViewModel: AxioLoomViewModel? = null
-    private var startupError: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        StartupLogger.logStage(this, "STAGE_MAIN_ON_CREATE")
 
         runCatching {
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
 
-        val previousAborted = StartupLogger.wasPreviousLaunchAborted(this)
-        val lastStage = StartupLogger.getLastStage(this)
-        if (previousAborted) {
-            startupError = "Previous launch terminated unexpectedly at: $lastStage\n" +
-                "Startup trace:\n" + StartupLogger.getFullLog(this)
+        var startupError: String? = null
+        val vm = runCatching {
+            ViewModelProvider(this)[AxioLoomViewModel::class.java].also { axioLoomViewModel = it }
+        }.getOrElse { error ->
+            val trace = buildString {
+                appendLine("ViewModel initialization error: ${error::class.java.name}: ${error.message}")
+                for (el in error.stackTrace.take(25)) appendLine("  at $el")
+            }
+            startupError = trace
+            Log.e("MainActivity", "Failed to initialize AxioLoomViewModel", error)
+            null
         }
 
-        StartupLogger.logStage(this, "STAGE_VIEWMODEL_INIT")
-        try {
-            axioLoomViewModel = ViewModelProvider(this)[AxioLoomViewModel::class.java]
-        } catch (t: Throwable) {
-            startupError = (startupError?.let { "$it\n\n" } ?: "") +
-                "ViewModel initialization failed: ${t::class.java.name}: ${t.message ?: "No message"}\n" +
-                t.stackTrace.take(25).joinToString("\n") { "  at $it" }
-            Log.e("MainActivity", "Failed to initialize AxioLoomViewModel", t)
-        }
-
-        StartupLogger.logStage(this, "STAGE_SET_CONTENT")
         setContent {
             CompositionLocalProvider(
                 ComposeLifecycleOwner provides this,
@@ -92,8 +85,6 @@ class MainActivity : ComponentActivity() {
                             errorText = diagnosticError!!,
                             onDismiss = {
                                 AxioLoomApp.clearSavedCrash(context)
-                                StartupLogger.clear(context)
-                                StartupLogger.logStage(context, "STAGE_WORKSPACE_READY")
                                 diagnosticError = null
                             },
                             onResetData = {
@@ -102,18 +93,14 @@ class MainActivity : ComponentActivity() {
                                         .edit().clear().commit()
                                     File(context.filesDir, "notebooks").deleteRecursively()
                                     File(context.filesDir, "workspace_v1.json").delete()
-                                    StartupLogger.clear(context)
                                 }
                                 AxioLoomApp.clearSavedCrash(context)
                                 diagnosticError = null
                                 recreate()
                             }
                         )
-                    } else if (axioLoomViewModel != null) {
-                        LaunchedEffect(Unit) {
-                            StartupLogger.logStage(context, "STAGE_WORKSPACE_READY")
-                        }
-                        MathWorkspaceScreen(viewModel = axioLoomViewModel!!)
+                    } else if (vm != null) {
+                        MathWorkspaceScreen(viewModel = vm)
                     } else {
                         DiagnosticsScreen(
                             errorText = startupError ?: "Could not initialize AxioLoom workspace.",
@@ -121,7 +108,6 @@ class MainActivity : ComponentActivity() {
                             onResetData = {
                                 runCatching {
                                     File(context.filesDir, "notebooks").deleteRecursively()
-                                    StartupLogger.clear(context)
                                 }
                                 recreate()
                             }

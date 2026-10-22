@@ -117,7 +117,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
             try {
                 cas.warmUp()
                 mutableWarmupError.value = null
-            } catch (failure: Exception) {
+            } catch (failure: Throwable) {
                 mutableWarmupError.value = failure.message ?: "Offline CAS warm-up failed"
             }
         }
@@ -360,7 +360,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
                 }
                 graph.upsert(blockId, transpiled.intent, block.transform)
                 scheduleAutoSave()
-            } catch (failure: Exception) {
+            } catch (failure: Throwable) {
                 mutableInputError.value = failure.message ?: "Could not solve for $targetVar"
             }
         }
@@ -567,7 +567,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
                 graph.upsert(blockId, parsed.intent)
                 mutableInputError.value = null
                 scheduleAutoSave()
-            } catch (failure: Exception) {
+            } catch (failure: Throwable) {
                 mutableInputError.value = failure.message ?: "Could not parse this expression"
             }
         }

@@ -2,7 +2,10 @@ package com.axioloom.app
 
 import android.app.Application
 import android.content.Context
+import android.os.Environment
 import android.util.Log
+import com.axioloom.app.domain.cas.OfflineCasEngine
+import java.io.File
 
 /**
  * Custom application class for AxioLoom.
@@ -38,6 +41,16 @@ class AxioLoomApp : Application() {
                 val prefs = context.getSharedPreferences("axioloom_crash_log", Context.MODE_PRIVATE)
                 prefs.edit().putString("last_fatal_crash", report).commit()
             }
+            runCatching {
+                val extFile = File(context.getExternalFilesDir(null), "axioloom_crash.txt")
+                extFile.writeText(report)
+            }
+            runCatching {
+                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (downloadDir.exists() && downloadDir.canWrite()) {
+                    File(downloadDir, "axioloom_crash.txt").writeText(report)
+                }
+            }
             StartupLogger.logStage(context, "FATAL_JAVA_EXCEPTION: ${error::class.java.simpleName}: ${error.message}")
         }
 
@@ -54,12 +67,18 @@ class AxioLoomApp : Application() {
                 val prefs = context.getSharedPreferences("axioloom_crash_log", Context.MODE_PRIVATE)
                 prefs.edit().remove("last_fatal_crash").commit()
             }
+            runCatching {
+                File(context.getExternalFilesDir(null), "axioloom_crash.txt").delete()
+            }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
         StartupLogger.logStage(this, "STAGE_APP_ON_CREATE")
+        runCatching {
+            OfflineCasEngine.configureSymjaForAndroid()
+        }
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e("AxioLoomApp", "FATAL CRASH on thread ${thread.name}: ${throwable.message}", throwable)
