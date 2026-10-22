@@ -162,10 +162,12 @@ private class InkInputLayout(
         clipChildren = false
         clipToPadding = false
         isClickable = true
-        if (inkView != null && brush != null) {
+        val v = inkView
+        val b = brush
+        if (v != null && b != null) {
             runCatching {
-                addView(inkView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-                inkView.addFinishedStrokesListener(finishedListener)
+                addView(v, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+                v.addFinishedStrokesListener(finishedListener)
                 updateViewport(viewport)
             }.onFailure { error ->
                 Log.w("WetInkOverlay", "InProgressStrokesView attachment failed, using fallback canvas", error)
@@ -323,7 +325,9 @@ private class InkInputLayout(
         }
 
         // Mode 3: Draw Tool (Standard Canvas Fallback if native Ink view unavailable)
-        if (!isNativeInkAvailable || inkView == null || brush == null) {
+        val nativeView = inkView
+        val nativeBrush = brush
+        if (!isNativeInkAvailable || nativeView == null || nativeBrush == null) {
             val worldPos = viewport.screenToWorld(Offset(event.x, event.y))
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -372,7 +376,7 @@ private class InkInputLayout(
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 suppressCurrentGesture = false
                 activeStrokes.values.forEach { strokeId ->
-                    runCatching { inkView.cancelStroke(strokeId, event) }
+                    runCatching { nativeView.cancelStroke(strokeId, event) }
                 }
                 activeStrokes.clear()
                 fingerStrokePointers.clear()
@@ -390,13 +394,13 @@ private class InkInputLayout(
                     previousFingerPositions.clear()
                     runCatching { requestUnbufferedDispatch(event) }
                     runCatching {
-                        activeStrokes[pointerId] = inkView.startStroke(event, pointerId, brush)
+                        activeStrokes[pointerId] = nativeView.startStroke(event, pointerId, nativeBrush)
                     }
                 } else if (isFinger(event, index)) {
                     previousFingerPositions.clear()
                     runCatching { requestUnbufferedDispatch(event) }
                     runCatching {
-                        activeStrokes[pointerId] = inkView.startStroke(event, pointerId, brush)
+                        activeStrokes[pointerId] = nativeView.startStroke(event, pointerId, nativeBrush)
                         fingerStrokePointers.add(pointerId)
                     }
                 }
@@ -408,13 +412,13 @@ private class InkInputLayout(
                     previousFingerPositions.clear()
                     runCatching { requestUnbufferedDispatch(event) }
                     runCatching {
-                        activeStrokes[pointerId] = inkView.startStroke(event, pointerId, brush)
+                        activeStrokes[pointerId] = nativeView.startStroke(event, pointerId, nativeBrush)
                     }
                 } else if (isFinger(event, index)) {
                     fingerStrokePointers.forEach { activeFingerPointerId ->
                         val strokeId = activeStrokes.remove(activeFingerPointerId)
                         if (strokeId != null) {
-                            runCatching { inkView.cancelStroke(strokeId, event) }
+                            runCatching { nativeView.cancelStroke(strokeId, event) }
                         }
                     }
                     fingerStrokePointers.clear()
@@ -427,7 +431,7 @@ private class InkInputLayout(
                     val predicted = runCatching { predictor?.predict() }.getOrNull()
                     try {
                         activeStrokes.forEach { (pointerId, strokeId) ->
-                            runCatching { inkView.addToStroke(event, pointerId, strokeId, predicted) }
+                            runCatching { nativeView.addToStroke(event, pointerId, strokeId, predicted) }
                         }
                     } finally {
                         predicted?.recycle()
@@ -456,7 +460,7 @@ private class InkInputLayout(
             }
             MotionEvent.ACTION_CANCEL -> {
                 activeStrokes.values.forEach { strokeId ->
-                    runCatching { inkView.cancelStroke(strokeId, event) }
+                    runCatching { nativeView.cancelStroke(strokeId, event) }
                 }
                 activeStrokes.clear()
                 fingerStrokePointers.clear()
@@ -471,10 +475,11 @@ private class InkInputLayout(
         val pointerId = event.getPointerId(index)
         val strokeId = activeStrokes.remove(pointerId) ?: return
         fingerStrokePointers.remove(pointerId)
+        val v = inkView ?: return
         if ((event.flags and MotionEvent.FLAG_CANCELED) != 0 || suppressCurrentGesture) {
-            runCatching { inkView?.cancelStroke(strokeId, event) }
+            runCatching { v.cancelStroke(strokeId, event) }
         } else {
-            runCatching { inkView?.finishStroke(event, pointerId, strokeId) }
+            runCatching { v.finishStroke(event, pointerId, strokeId) }
         }
     }
 
