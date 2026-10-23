@@ -577,8 +577,95 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     fun removeBlock(blockId: UUID) {
         coordinator.forget(blockId)
         mutableRecognitionMessages.update { it - blockId }
+        val previousState = mutableInkWorkspace.value
+        val targetBlock = previousState.blocks.firstOrNull { it.id == blockId }
+        val strokeIdsToRemove = targetBlock?.strokeIds ?: emptySet()
+        historyManager.recordCommit(previousState)
+        mutableInkWorkspace.update { state ->
+            state.copy(
+                blocks = state.blocks.filterNot { it.id == blockId },
+                strokes = state.strokes.filterNot { it.id in strokeIdsToRemove },
+                version = state.version + 1
+            )
+        }
         viewModelScope.launch { graph.remove(blockId) }
+        updateCanUndoRedo()
         scheduleAutoSave()
+    }
+
+    fun eraseStrokes(erasedStrokeIds: Set<UUID>) {
+        if (erasedStrokeIds.isEmpty()) return
+        viewModelScope.launch(Dispatchers.Default) {
+            val previousState = mutableInkWorkspace.value
+            val result = reducer.erase(previousState, erasedStrokeIds)
+            historyManager.recordCommit(previousState)
+            mutableInkWorkspace.value = result.state
+            updateCanUndoRedo()
+
+            result.removedBlockIds.forEach { id ->
+                coordinator.forget(id)
+                mutableRecognitionMessages.update { it - id }
+                graph.remove(id)
+            }
+            result.invalidatedBlockIds.forEach { id ->
+                coordinator.forget(id)
+                mutableRecognitionMessages.update { it - id }
+                graph.remove(id)
+            }
+            val blocksById = result.state.blocks.associateBy { it.id }
+            result.dirtyBlockIds.forEach { id ->
+                val block = blocksById[id] ?: return@forEach
+                coordinator.submit(block)
+            }
+            scheduleAutoSave()
+        }
+    }
+
+    fun eraseAt(worldPos: Offset, radiusPx: Float = 24f): Boolean {
+        val currentState = mutableInkWorkspace.value
+        if (currentState.strokes.isEmpty()) return false
+
+        val radiusSq = radiusPx * radiusPx
+        val erasedStrokes = currentState.strokes.filter { stroke ->
+            val b = stroke.bounds
+            if (worldPos.x < b.left - radiusPx || worldPos.x > b.right + radiusPx ||
+                worldPos.y < b.top - radiusPx || worldPos.y > b.bottom + radiusPx) {
+                false
+            } else {
+                stroke.points.any { p ->
+                    val dx = p.x - worldPos.x
+                    val dy = p.y - worldPos.y
+                    (dx * dx + dy * dy) <= radiusSq
+                } || (1 until stroke.points.size).any { i ->
+                    val p1 = stroke.points[i - 1]
+                    val p2 = stroke.points[i]
+                    distanceToSegmentSq(worldPos.x, worldPos.y, p1.x, p1.y, p2.x, p2.y) <= radiusSq
+                }
+            }
+        }
+
+        if (erasedStrokes.isEmpty()) return false
+
+        val erasedIds = erasedStrokes.mapTo(HashSet()) { it.id }
+        eraseStrokes(erasedIds)
+        return true
+    }
+
+    private fun distanceToSegmentSq(px: Float, py: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
+        val dx = x2 - x1
+        val dy = y2 - y1
+        val l2 = dx * dx + dy * dy
+        if (l2 < 1e-6f) {
+            val sx = px - x1
+            val sy = py - y1
+            return sx * sx + sy * sy
+        }
+        val t = (((px - x1) * dx + (py - y1) * dy) / l2).coerceIn(0f, 1f)
+        val projX = x1 + t * dx
+        val projY = y1 + t * dy
+        val ex = px - projX
+        val ey = py - projY
+        return ex * ex + ey * ey
     }
 
     fun clearWorkspace() {

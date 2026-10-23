@@ -63,4 +63,31 @@ class InkWorkspaceReducer(
             dirtyBlockIds = changed
         )
     }
+
+    /**
+     * Erases a set of strokes from the workspace and reclusters remaining strokes.
+     */
+    fun erase(state: InkWorkspaceState, erasedStrokeIds: Set<UUID>): StrokeCommitResult {
+        if (erasedStrokeIds.isEmpty()) {
+            return StrokeCommitResult(state, null, emptySet(), emptySet(), emptySet())
+        }
+        val nextStrokes = state.strokes.filterNot { it.id in erasedStrokeIds }
+        val affectedOld = state.blocks.filter { block -> block.strokeIds.any(erasedStrokeIds::contains) }.mapTo(linkedSetOf()) { it.id }
+        val nextBlocks = grouper.group(nextStrokes, state.blocks)
+        val nextIds = nextBlocks.mapTo(HashSet()) { it.id }
+        val oldById = state.blocks.associateBy { it.id }
+        val changed = nextBlocks.filter { next ->
+            val old = oldById[next.id]
+            old == null || old.revision != next.revision
+        }.mapTo(linkedSetOf()) { it.id }
+        val removed = state.blocks.mapNotNullTo(linkedSetOf()) { old -> old.id.takeIf { it !in nextIds } }
+        val invalidated = affectedOld.filterTo(linkedSetOf()) { it in nextIds }
+        return StrokeCommitResult(
+            state = InkWorkspaceState(nextStrokes.toList(), nextBlocks.toList(), state.version + 1),
+            scratchDecision = null,
+            removedBlockIds = removed,
+            invalidatedBlockIds = invalidated,
+            dirtyBlockIds = changed
+        )
+    }
 }

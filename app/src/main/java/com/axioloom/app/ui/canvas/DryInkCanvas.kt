@@ -16,6 +16,7 @@ import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import com.axioloom.app.domain.dag.ReactiveGraphSnapshot
 import com.axioloom.app.domain.model.BlockDisplayMode
 import com.axioloom.app.domain.model.BlockStatus
+import com.axioloom.app.domain.model.MathIntent
 import com.axioloom.app.domain.model.touches
 import com.axioloom.app.domain.clustering.InkWorkspaceState
 import com.axioloom.app.ui.renderer.LatexCanvasRenderer
@@ -139,7 +140,20 @@ fun DryInkCanvas(
                     canvas.drawLine(r, b, r, b - arm, bracketPaint)
 
                     val fastOverride = fastNumericOverrides[block.id]
-                    val resultLatex = if (fastOverride != null) "= ${fastOverride.formattedPreview}" else result?.latex
+                    val rawResult = result?.latex
+                    val resultLatex = when {
+                        fastOverride != null -> "= ${fastOverride.formattedPreview}"
+                        rawResult != null -> {
+                            if (block.resultAnchorPoint == null && !rawResult.trimStart().startsWith("=") &&
+                                (block.intent is MathIntent.EvaluationQuery || block.intent == null)
+                            ) {
+                                "= $rawResult"
+                            } else {
+                                rawResult
+                            }
+                        }
+                        else -> null
+                    }
                     if (!resultLatex.isNullOrBlank()) {
                         val anchor = block.resultAnchorPoint
                         val left = (anchor?.x ?: bounds.right) + 12f

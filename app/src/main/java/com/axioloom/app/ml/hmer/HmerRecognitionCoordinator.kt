@@ -61,13 +61,34 @@ class HmerRecognitionCoordinator(
                 val outcome = try {
                     val raster = rasterizer.rasterize(block.strokes)
                     when (val inference = engine.recognize(raster)) {
-                        is HmerInferenceResult.Recognized -> BlockRecognitionOutcome.Recognized(
-                            latex = inference.latex,
-                            source = RecognitionSource.ONNX_MODEL,
-                            tokenIds = inference.tokenIds,
-                            reachedEndToken = inference.reachedEndToken,
-                            alternatives = inference.alternatives
-                        )
+                        is HmerInferenceResult.Recognized -> {
+                            if (inference.latex.isBlank()) {
+                                val fallback = prototypeClassifier?.recognizeExpression(block.strokes)
+                                if (fallback != null && fallback.latex.isNotBlank()) {
+                                    BlockRecognitionOutcome.Recognized(
+                                        latex = fallback.latex,
+                                        source = RecognitionSource.PROTOTYPE_FALLBACK,
+                                        alternatives = fallback.alternatives
+                                    )
+                                } else {
+                                    BlockRecognitionOutcome.Recognized(
+                                        latex = inference.latex,
+                                        source = RecognitionSource.ONNX_MODEL,
+                                        tokenIds = inference.tokenIds,
+                                        reachedEndToken = inference.reachedEndToken,
+                                        alternatives = inference.alternatives
+                                    )
+                                }
+                            } else {
+                                BlockRecognitionOutcome.Recognized(
+                                    latex = inference.latex,
+                                    source = RecognitionSource.ONNX_MODEL,
+                                    tokenIds = inference.tokenIds,
+                                    reachedEndToken = inference.reachedEndToken,
+                                    alternatives = inference.alternatives
+                                )
+                            }
+                        }
                         is HmerInferenceResult.Unavailable -> {
                             val fallback = prototypeClassifier?.recognizeExpression(block.strokes)
                             if (fallback != null && fallback.latex.isNotBlank()) {
@@ -80,7 +101,18 @@ class HmerRecognitionCoordinator(
                                 BlockRecognitionOutcome.ModelUnavailable(inference.reason)
                             }
                         }
-                        is HmerInferenceResult.Failed -> BlockRecognitionOutcome.Failed(inference.reason)
+                        is HmerInferenceResult.Failed -> {
+                            val fallback = prototypeClassifier?.recognizeExpression(block.strokes)
+                            if (fallback != null && fallback.latex.isNotBlank()) {
+                                BlockRecognitionOutcome.Recognized(
+                                    latex = fallback.latex,
+                                    source = RecognitionSource.PROTOTYPE_FALLBACK,
+                                    alternatives = fallback.alternatives
+                                )
+                            } else {
+                                BlockRecognitionOutcome.Failed(inference.reason)
+                            }
+                        }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled

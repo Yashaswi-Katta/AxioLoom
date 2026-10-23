@@ -3,7 +3,6 @@ package com.axioloom.app.ml.hmer
 import android.content.Context
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import com.axioloom.app.domain.model.StrokeGeometry
 import com.axioloom.app.domain.model.TimedStroke
 import org.json.JSONArray
 import org.json.JSONObject
@@ -38,10 +37,10 @@ data class ExpressionRecognitionResult(
 )
 
 /**
- * Offline Multi-Stroke Elastic DTW (Dynamic Time Warping) and N-Protractor Symbol Classifier.
- * Operates directly on resampled stroke geometry (N = 32 equidistant points normalized to [0, 1]^2).
- * Pre-populated with canonical prototypes for digits 0-9, variables, operators, and constants.
- * Supports personal calibration via JSON persistence in user_symbol_prototypes.json.
+ * High-precision mathematical symbol classifier combining:
+ * 1. Deterministic geometric rule classification for unambiguous operators (+, -, =, *, /, 1, 0, .)
+ * 2. Elastic DTW + Euclidean Distance matching across all stroke permutations
+ * 3. Topological multi-stroke clustering and spatial superscript/number assembly.
  */
 class SymbolPrototypeClassifier(private val context: Context? = null) {
 
@@ -61,9 +60,6 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
         const val TARGET_POINTS = 32
         const val PROTOTYPES_FILE_NAME = "user_symbol_prototypes.json"
 
-        /**
-         * Resamples a polyline of 2D points to exactly [targetCount] equidistant points along its arc length.
-         */
         fun resamplePolyline(points: List<Offset>, targetCount: Int): List<Offset> {
             if (points.isEmpty()) return List(targetCount) { Offset.Zero }
             if (points.size == 1 || targetCount <= 1) return List(targetCount) { points.first() }
@@ -84,9 +80,7 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             val result = ArrayList<Offset>(targetCount)
             result.add(points.first())
 
-            var currentDist = 0f
             var segIdx = 0
-
             for (i in 1 until targetCount - 1) {
                 val targetDist = i * step
                 while (segIdx < distances.size - 2 && distances[segIdx + 1] < targetDist) {
@@ -109,9 +103,6 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             return result
         }
 
-        /**
-         * Converts a multi-stroke gesture (list of stroke point lists) into N=32 normalized points in [0, 1]^2.
-         */
         fun processStrokes(strokePolylines: List<List<Offset>>): List<NormalizedPoint> {
             val validStrokes = strokePolylines.filter { it.isNotEmpty() }
             if (validStrokes.isEmpty()) {
@@ -124,7 +115,6 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             if (strokeCount == 1) {
                 resampledPoints.addAll(resamplePolyline(validStrokes[0], TARGET_POINTS))
             } else {
-                // Distribute TARGET_POINTS among strokes proportional to length
                 val lengths = validStrokes.map { stroke ->
                     var len = 0f
                     for (i in 1 until stroke.size) {
@@ -152,7 +142,6 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
                 }
             }
 
-            // Normalization to [0, 1]^2 preserving aspect ratio
             var minX = Float.POSITIVE_INFINITY
             var maxX = Float.NEGATIVE_INFINITY
             var minY = Float.POSITIVE_INFINITY
@@ -179,6 +168,152 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
                 )
             }
         }
+
+        private fun boundsOf(pts: List<Offset>): Rect {
+            if (pts.isEmpty()) return Rect.Zero
+            var l = Float.POSITIVE_INFINITY; var t = Float.POSITIVE_INFINITY
+            var r = Float.NEGATIVE_INFINITY; var b = Float.NEGATIVE_INFINITY
+            for (p in pts) {
+                l = min(l, p.x); t = min(t, p.y)
+                r = max(r, p.x); b = max(b, p.y)
+            }
+            return Rect(l, t, r, b)
+        }
+
+        private fun arcLengthOf(pts: List<Offset>): Float {
+            var len = 0f
+            for (i in 1 until pts.size) {
+                len += hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+            }
+            return len
+        }
+
+        private fun segmentsIntersect(p1: Offset, p2: Offset, q1: Offset, q2: Offset): Boolean {
+            fun ccw(a: Offset, b: Offset, c: Offset): Float =
+                (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+
+            val d1 = ccw(p1, p2, q1)
+            val d2 = ccw(p1, p2, q2)
+            val d3 = ccw(q1, q2, p1)
+            val d4 = ccw(q1, q2, p2)
+
+            return ((d1 > 0f && d2 < 0f) || (d1 < 0f && d2 > 0f)) &&
+                    ((d3 > 0f && d4 < 0f) || (d3 < 0f && d4 > 0f))
+        }
+
+        private fun anySegmentsIntersect(s1: List<Offset>, s2: List<Offset>): Boolean {
+            val step1 = max(1, s1.size / 10)
+            val step2 = max(1, s2.size / 10)
+            for (i in 0 until s1.size - 1 step step1) {
+                val p1 = s1[i]
+                val p2 = s1[min(i + step1, s1.size - 1)]
+                for (j in 0 until s2.size - 1 step step2) {
+                    val q1 = s2[j]
+                    val q2 = s2[min(j + step2, s2.size - 1)]
+                    if (segmentsIntersect(p1, p2, q1, q2)) return true
+                }
+            }
+            return false
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Deterministic Geometric Rule Classifier
+    // ------------------------------------------------------------------------
+
+    private fun classifyByGeometry(strokes: List<List<Offset>>): ClassificationMatch? {
+        val valid = strokes.filter { it.isNotEmpty() }
+        if (valid.isEmpty()) return null
+        val count = valid.size
+
+        if (count == 2) {
+            val s1 = valid[0]
+            val s2 = valid[1]
+            val b1 = boundsOf(s1)
+            val b2 = boundsOf(s2)
+
+            val w1 = b1.width; val h1 = b1.height
+            val w2 = b2.width; val h2 = b2.height
+
+            // 1. Plus Sign (+): one vertical stroke, one horizontal stroke crossing near centers
+            val s1Vert = h1 > w1 * 1.25f
+            val s1Horiz = w1 > h1 * 1.25f
+            val s2Vert = h2 > w2 * 1.25f
+            val s2Horiz = w2 > h2 * 1.25f
+
+            if ((s1Vert && s2Horiz) || (s1Horiz && s2Vert)) {
+                val centerDistX = abs(b1.center.x - b2.center.x)
+                val centerDistY = abs(b1.center.y - b2.center.y)
+                val maxDim = max(max(w1, h1), max(w2, h2))
+                if (centerDistX <= maxDim * 0.45f && centerDistY <= maxDim * 0.45f || anySegmentsIntersect(s1, s2)) {
+                    return ClassificationMatch("+", "+", 0.001f)
+                }
+            }
+
+            // 2. Equals Sign (=): two horizontal bars, stacked vertically, horizontal overlap >= 45%
+            if (w1 > h1 * 1.15f && w2 > h2 * 1.15f) {
+                val overlapX = min(b1.right, b2.right) - max(b1.left, b2.left)
+                val minW = min(w1, w2)
+                if (minW > 4f && overlapX / minW >= 0.45f) {
+                    val gapY = abs(b1.center.y - b2.center.y)
+                    if (gapY > 2f && gapY <= max(w1, w2) * 1.2f && !anySegmentsIntersect(s1, s2)) {
+                        return ClassificationMatch("=", "=", 0.001f)
+                    }
+                }
+            }
+
+            // 3. Multiplication Cross (\times): two crossing diagonal strokes
+            if (anySegmentsIntersect(s1, s2)) {
+                val dx1 = s1.last().x - s1.first().x; val dy1 = s1.last().y - s1.first().y
+                val dx2 = s2.last().x - s2.first().x; val dy2 = s2.last().y - s2.first().y
+                val slope1 = dy1 / (abs(dx1) + 1e-4f)
+                val slope2 = dy2 / (abs(dx2) + 1e-4f)
+                if ((slope1 > 0.15f && slope2 < -0.15f) || (slope1 < -0.15f && slope2 > 0.15f)) {
+                    return ClassificationMatch("\\times", "\\times", 0.01f)
+                }
+            }
+        } else if (count == 1) {
+            val s = valid[0]
+            val b = boundsOf(s)
+            val w = b.width; val h = b.height
+            val dx = abs(s.last().x - s.first().x)
+            val dy = abs(s.last().y - s.first().y)
+            val startEndDist = hypot(s.last().x - s.first().x, s.last().y - s.first().y)
+            val arcLen = arcLengthOf(s)
+
+            // Dot (.)
+            if (max(w, h) < 14f || arcLen < 16f) {
+                return ClassificationMatch(".", ".", 0.005f)
+            }
+
+            // Minus (-)
+            if (w > h * 2.0f && dx > dy * 1.8f && w >= 12f) {
+                return ClassificationMatch("-", "-", 0.001f)
+            }
+
+            // One (1)
+            if (h > w * 2.3f && dy > dx * 2.0f && h >= 16f) {
+                return ClassificationMatch("1", "1", 0.001f)
+            }
+
+            // Zero (0): closed loop with balanced aspect ratio
+            if (startEndDist < max(w, h) * 0.35f && arcLen >= max(w, h) * 2.1f && min(w, h) >= 12f) {
+                if (w / max(h, 1e-4f) in 0.40f..2.4f) {
+                    return ClassificationMatch("0", "0", 0.01f)
+                }
+            }
+
+            // Slash (/)
+            if (h in (w * 0.45f)..(w * 3.5f) && min(w, h) >= 16f) {
+                val sx = s.first().x; val sy = s.first().y
+                val ex = s.last().x; val ey = s.last().y
+                val isSlash = (ex > sx + 8f && sy > ey + 8f) || (sx > ex + 8f && ey > sy + 8f)
+                if (isSlash && arcLen < hypot(ex - sx, ey - sy) * 1.4f) {
+                    return ClassificationMatch("/", "/", 0.02f)
+                }
+            }
+        }
+        return null
     }
 
     // ------------------------------------------------------------------------
@@ -188,7 +323,7 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
     private fun dtwDistance(
         a: List<NormalizedPoint>,
         b: List<NormalizedPoint>,
-        window: Int = 6
+        window: Int = 8
     ): Float {
         val n = a.size
         val m = b.size
@@ -209,9 +344,8 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             }
         }
 
-        val dtwScore = if (dp[n][m].isFinite()) dp[n][m] / n.toFloat() else 10f
+        val dtwScore = if (dp[n][m].isFinite()) dp[n][m] / n.toFloat() else 8f
 
-        // Also blend with direct Euclidean point-by-point distance
         var eucSum = 0f
         val len = min(n, m)
         for (i in 0 until len) {
@@ -223,28 +357,37 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
     }
 
     /**
-     * Classifies a list of strokes against known prototypes.
-     * Evaluates stroke permutations for multi-stroke inputs to guarantee direction invariance.
+     * Classifies a list of stroke polylines against known prototypes.
+     * Evaluates geometric signatures first, then all 8 permutations for multi-stroke inputs.
      */
     fun classifyStrokes(strokePolylines: List<List<Offset>>): List<ClassificationMatch> = synchronized(lock) {
         val validStrokes = strokePolylines.filter { it.isNotEmpty() }
         if (validStrokes.isEmpty()) return emptyList()
 
+        val ruleMatch = classifyByGeometry(validStrokes)
+        if (ruleMatch != null) {
+            return listOf(ruleMatch)
+        }
+
         val strokeCount = validStrokes.size
 
-        // Generate stroke permutations for multi-stroke inputs (e.g. forward, reversed stroke order)
         val variations = mutableListOf<List<List<Offset>>>()
         variations.add(validStrokes)
         if (strokeCount == 2) {
-            variations.add(listOf(validStrokes[1], validStrokes[0]))
-            variations.add(listOf(validStrokes[0].reversed(), validStrokes[1]))
-            variations.add(listOf(validStrokes[0], validStrokes[1].reversed()))
+            val s0 = validStrokes[0]; val s1 = validStrokes[1]
+            val s0r = s0.reversed(); val s1r = s1.reversed()
+            variations.add(listOf(s1, s0))
+            variations.add(listOf(s0r, s1))
+            variations.add(listOf(s0, s1r))
+            variations.add(listOf(s0r, s1r))
+            variations.add(listOf(s1r, s0))
+            variations.add(listOf(s1, s0r))
+            variations.add(listOf(s1r, s0r))
         } else if (strokeCount == 1) {
             variations.add(listOf(validStrokes[0].reversed()))
         }
 
         val processedVariations = variations.map { processStrokes(it) }
-
         val matches = mutableListOf<ClassificationMatch>()
 
         for (proto in prototypes) {
@@ -252,9 +395,8 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
 
             for (cand in processedVariations) {
                 val dist = dtwDistance(cand, proto.points)
-                // Add penalty if stroke counts differ
                 val strokeCountDiff = abs(strokeCount - proto.strokeCount)
-                val strokePenalty = strokeCountDiff * 0.40f
+                val strokePenalty = strokeCountDiff * 0.25f
                 val totalScore = dist + strokePenalty - (if (proto.isCustom) 0.05f else 0f)
 
                 if (totalScore < bestScore) {
@@ -274,25 +416,36 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
     }
 
     /**
-     * High-level expression recognizer: segments horizontally separated symbols,
-     * classifies each symbol, and formats into combined LaTeX string.
+     * High-level expression recognizer: clusters strokes topologically,
+     * classifies each symbol cluster, and formats into combined mathematical LaTeX.
      */
     fun recognizeExpression(timedStrokes: List<TimedStroke>): ExpressionRecognitionResult? {
         if (timedStrokes.isEmpty()) return null
 
-        // 1. Cluster strokes horizontally into symbol groups
         val clusters = clusterStrokesHorizontally(timedStrokes)
         if (clusters.isEmpty()) return null
 
-        val tokens = mutableListOf<String>()
+        data class RecognizedToken(
+            val latex: String,
+            val bounds: Rect,
+            val alternatives: List<String>
+        )
+
+        val tokens = mutableListOf<RecognizedToken>()
         val allAlternatives = mutableListOf<String>()
 
         for (cluster in clusters) {
             val polylines = cluster.map { stroke -> stroke.points.map { it.offset } }
+            val cLeft = cluster.minOf { it.bounds.left }
+            val cRight = cluster.maxOf { it.bounds.right }
+            val cTop = cluster.minOf { it.bounds.top }
+            val cBottom = cluster.maxOf { it.bounds.bottom }
+            val clusterBounds = Rect(cLeft, cTop, cRight, cBottom)
+
             val matches = classifyStrokes(polylines)
             if (matches.isNotEmpty()) {
                 val top = matches.first()
-                tokens.add(top.latex)
+                tokens.add(RecognizedToken(top.latex, clusterBounds, matches.drop(1).take(3).map { it.latex }))
                 matches.take(3).forEach { m ->
                     if (m.latex != top.latex && m.latex !in allAlternatives) {
                         allAlternatives.add(m.latex)
@@ -301,7 +454,46 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             }
         }
 
-        val latex = tokens.joinToString(" ")
+        if (tokens.isEmpty()) return null
+
+        // Assemble LaTeX tokens with numbers, operators, and superscripts
+        val sb = StringBuilder()
+        var i = 0
+        while (i < tokens.size) {
+            val cur = tokens[i]
+            val isDigit = cur.latex.all { it in '0'..'9' }
+
+            if (i > 0) {
+                val prev = tokens[i - 1]
+                val prevIsDigit = prev.latex.all { it in '0'..'9' }
+
+                // Check for superscript (elevated and smaller)
+                val isElevated = cur.bounds.center.y < prev.bounds.top + prev.bounds.height * 0.40f &&
+                        cur.bounds.left >= prev.bounds.right - prev.bounds.width * 0.25f
+
+                if (isElevated) {
+                    sb.append("^{").append(cur.latex).append("}")
+                    i++
+                    continue
+                }
+
+                // If both are digits and tightly spaced, concatenate without space
+                val tightGap = cur.bounds.left - prev.bounds.right
+                if (isDigit && prevIsDigit && tightGap <= prev.bounds.height * 0.65f) {
+                    sb.append(cur.latex)
+                    i++
+                    continue
+                }
+
+                // Standard space delimiter
+                sb.append(" ")
+            }
+
+            sb.append(cur.latex)
+            i++
+        }
+
+        val latex = sb.toString().trim()
         return ExpressionRecognitionResult(latex, allAlternatives)
     }
 
@@ -312,22 +504,31 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
         val clusters = mutableListOf<MutableList<TimedStroke>>()
 
         for (stroke in sorted) {
-            val bounds = stroke.bounds
+            val sBounds = stroke.bounds
             var placed = false
 
             for (cluster in clusters) {
-                val clusterLeft = cluster.minOf { it.bounds.left }
-                val clusterRight = cluster.maxOf { it.bounds.right }
-                val clusterTop = cluster.minOf { it.bounds.top }
-                val clusterBottom = cluster.maxOf { it.bounds.bottom }
-                val clusterHeight = max(clusterBottom - clusterTop, 20f)
+                val cLeft = cluster.minOf { it.bounds.left }
+                val cRight = cluster.maxOf { it.bounds.right }
+                val cTop = cluster.minOf { it.bounds.top }
+                val cBottom = cluster.maxOf { it.bounds.bottom }
+                val cWidth = max(cRight - cLeft, 8f)
+                val cHeight = max(cBottom - cTop, 8f)
+                val cBounds = Rect(cLeft, cTop, cRight, cBottom)
 
-                // Overlaps horizontally or vertically stacked (like '=' or ':' or division bar)
-                val horizOverlap = (bounds.left <= clusterRight + clusterHeight * 0.25f) &&
-                        (bounds.right >= clusterLeft - clusterHeight * 0.25f)
-                val vertStack = abs(bounds.left - clusterLeft) < clusterHeight * 0.6f
+                // Condition 1: Intersection or contact distance <= 14px
+                val touchesAny = cluster.any { other ->
+                    strokesIntersectOrTouch(stroke, other, 14f)
+                }
 
-                if (horizOverlap || vertStack) {
+                // Condition 2: Vertical Stacking (like '=' sign or division bar)
+                val overlapX = min(sBounds.right, cRight) - max(sBounds.left, cLeft)
+                val minW = min(sBounds.width, cWidth)
+                val isStacked = (minW > 4f && overlapX / minW >= 0.45f) &&
+                        (abs(sBounds.center.x - cBounds.center.x) <= max(sBounds.width, cWidth) * 0.55f) &&
+                        (verticalDistance(sBounds, cBounds) <= max(cHeight, sBounds.height) * 1.25f)
+
+                if (touchesAny || isStacked) {
                     cluster.add(stroke)
                     placed = true
                     break
@@ -340,6 +541,37 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
         }
 
         return clusters.sortedBy { c -> c.minOf { it.bounds.left } }
+    }
+
+    private fun verticalDistance(a: Rect, b: Rect): Float = when {
+        a.bottom < b.top -> b.top - a.bottom
+        b.bottom < a.top -> a.top - b.bottom
+        else -> 0f
+    }
+
+    private fun strokesIntersectOrTouch(a: TimedStroke, b: TimedStroke, maxDist: Float): Boolean {
+        if (a.bounds.right < b.bounds.left - maxDist || b.bounds.right < a.bounds.left - maxDist ||
+            a.bounds.bottom < b.bounds.top - maxDist || b.bounds.bottom < a.bounds.top - maxDist) {
+            return false
+        }
+
+        val ptsA = a.points.map { it.offset }
+        val ptsB = b.points.map { it.offset }
+        if (anySegmentsIntersect(ptsA, ptsB)) return true
+
+        val maxDistSq = maxDist * maxDist
+        val stepA = max(1, ptsA.size / 8)
+        val stepB = max(1, ptsB.size / 8)
+        for (i in ptsA.indices step stepA) {
+            val pa = ptsA[i]
+            for (j in ptsB.indices step stepB) {
+                val pb = ptsB[j]
+                val dx = pa.x - pb.x
+                val dy = pa.y - pb.y
+                if (dx * dx + dy * dy <= maxDistSq) return true
+            }
+        }
+        return false
     }
 
     // ------------------------------------------------------------------------
@@ -360,43 +592,55 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             points = points,
             isCustom = true
         )
-        prototypes.add(0, proto) // Custom prototypes placed at front for higher priority
+        prototypes.add(0, proto)
         if (saveToFile && context != null) {
             saveCustomPrototypes(context)
         }
     }
 
-    fun loadCustomPrototypes(ctx: Context) = synchronized(lock) {
+    fun getPrototypes(): List<SymbolPrototype> = synchronized(lock) {
+        prototypes.toList()
+    }
+
+    fun removeCustomPrototype(proto: SymbolPrototype) = synchronized(lock) {
+        prototypes.remove(proto)
+        context?.let { saveCustomPrototypes(it) }
+    }
+
+    private fun loadCustomPrototypes(ctx: Context) = synchronized(lock) {
         try {
             val file = File(ctx.filesDir, PROTOTYPES_FILE_NAME)
             if (!file.exists()) return
-
-            val jsonStr = file.readText()
-            val array = JSONArray(jsonStr)
+            val text = file.readText()
+            val array = JSONArray(text)
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
                 val label = obj.getString("label")
                 val latex = obj.getString("latex")
                 val strokeCount = obj.getInt("strokeCount")
                 val ptsArray = obj.getJSONArray("points")
-                val pts = mutableListOf<NormalizedPoint>()
+                val points = mutableListOf<NormalizedPoint>()
                 for (j in 0 until ptsArray.length()) {
                     val ptObj = ptsArray.getJSONObject(j)
-                    pts.add(
-                        NormalizedPoint(
-                            x = ptObj.getDouble("x").toFloat(),
-                            y = ptObj.getDouble("y").toFloat()
-                        )
-                    )
+                    points.add(NormalizedPoint(ptObj.getDouble("x").toFloat(), ptObj.getDouble("y").toFloat()))
                 }
-                prototypes.add(0, SymbolPrototype(label, latex, strokeCount, pts, isCustom = true))
+                prototypes.add(
+                    0,
+                    SymbolPrototype(
+                        label = label,
+                        latex = latex,
+                        strokeCount = strokeCount,
+                        points = points,
+                        isCustom = true
+                    )
+                )
             }
         } catch (_: Exception) {
-            // Graceful fallback if corrupt or read error
+            // Ignore load failures in restricted test environments
         }
     }
 
-    fun saveCustomPrototypes(ctx: Context) = synchronized(lock) {
+    private fun saveCustomPrototypes(ctx: Context) = synchronized(lock) {
         try {
             val customOnly = prototypes.filter { it.isCustom }
             val array = JSONArray()
@@ -430,34 +674,74 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
         // Digits
         addBuiltIn("0", "0", listOf(makeEllipse(0.5f, 0.5f, 0.35f, 0.45f)))
         addBuiltIn("1", "1", listOf(listOf(Offset(0.5f, 0.1f), Offset(0.5f, 0.9f))))
+        addBuiltIn("1_hook", "1", listOf(listOf(Offset(0.35f, 0.25f), Offset(0.5f, 0.1f), Offset(0.5f, 0.9f))))
+
+        // Digit 2 Variations
         addBuiltIn("2", "2", listOf(listOf(
             Offset(0.2f, 0.3f), Offset(0.5f, 0.1f), Offset(0.8f, 0.3f),
             Offset(0.2f, 0.9f), Offset(0.85f, 0.9f)
         )))
+        addBuiltIn("2_loop", "2", listOf(listOf(
+            Offset(0.25f, 0.3f), Offset(0.5f, 0.12f), Offset(0.78f, 0.28f),
+            Offset(0.25f, 0.82f), Offset(0.18f, 0.92f), Offset(0.32f, 0.88f), Offset(0.85f, 0.9f)
+        )))
+        addBuiltIn("2_two_stroke", "2", listOf(
+            listOf(Offset(0.2f, 0.3f), Offset(0.5f, 0.12f), Offset(0.8f, 0.3f), Offset(0.2f, 0.9f)),
+            listOf(Offset(0.15f, 0.9f), Offset(0.85f, 0.9f))
+        ))
+
+        // Digit 3 Variations
         addBuiltIn("3", "3", listOf(listOf(
             Offset(0.2f, 0.15f), Offset(0.8f, 0.15f), Offset(0.45f, 0.5f),
             Offset(0.8f, 0.75f), Offset(0.2f, 0.9f)
         )))
+        addBuiltIn("3_curved", "3", listOf(listOf(
+            Offset(0.25f, 0.25f), Offset(0.5f, 0.12f), Offset(0.75f, 0.28f), Offset(0.5f, 0.5f),
+            Offset(0.78f, 0.72f), Offset(0.5f, 0.88f), Offset(0.22f, 0.78f)
+        )))
+
+        // Digit 4 Variations
         addBuiltIn("4", "4", listOf(
             listOf(Offset(0.3f, 0.1f), Offset(0.15f, 0.6f), Offset(0.85f, 0.6f)),
             listOf(Offset(0.7f, 0.1f), Offset(0.7f, 0.9f))
         ))
+        addBuiltIn("4_single", "4", listOf(listOf(
+            Offset(0.7f, 0.9f), Offset(0.7f, 0.1f), Offset(0.2f, 0.65f), Offset(0.85f, 0.65f)
+        )))
+
+        // Digit 5 Variations
         addBuiltIn("5", "5", listOf(listOf(
             Offset(0.8f, 0.15f), Offset(0.25f, 0.15f), Offset(0.2f, 0.5f),
             Offset(0.8f, 0.6f), Offset(0.25f, 0.9f)
         )))
+        addBuiltIn("5_two_stroke", "5", listOf(
+            listOf(Offset(0.25f, 0.15f), Offset(0.2f, 0.5f), Offset(0.8f, 0.6f), Offset(0.25f, 0.9f)),
+            listOf(Offset(0.25f, 0.15f), Offset(0.8f, 0.15f))
+        ))
+
+        // Digit 6
         addBuiltIn("6", "6", listOf(listOf(
             Offset(0.8f, 0.15f), Offset(0.25f, 0.5f), Offset(0.25f, 0.85f),
             Offset(0.8f, 0.85f), Offset(0.8f, 0.55f), Offset(0.25f, 0.55f)
         )))
+
+        // Digit 7 Variations
         addBuiltIn("7", "7", listOf(listOf(
             Offset(0.15f, 0.15f), Offset(0.85f, 0.15f), Offset(0.4f, 0.9f)
         )))
+        addBuiltIn("7_cross", "7", listOf(
+            listOf(Offset(0.15f, 0.15f), Offset(0.85f, 0.15f), Offset(0.4f, 0.9f)),
+            listOf(Offset(0.35f, 0.5f), Offset(0.65f, 0.5f))
+        ))
+
+        // Digit 8
         addBuiltIn("8", "8", listOf(listOf(
             Offset(0.5f, 0.5f), Offset(0.25f, 0.25f), Offset(0.5f, 0.1f),
             Offset(0.75f, 0.25f), Offset(0.5f, 0.5f), Offset(0.2f, 0.75f),
             Offset(0.5f, 0.9f), Offset(0.8f, 0.75f), Offset(0.5f, 0.5f)
         )))
+
+        // Digit 9
         addBuiltIn("9", "9", listOf(listOf(
             Offset(0.8f, 0.5f), Offset(0.25f, 0.5f), Offset(0.25f, 0.15f),
             Offset(0.8f, 0.15f), Offset(0.8f, 0.9f), Offset(0.3f, 0.9f)
@@ -493,7 +777,15 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             Offset(0.5f, 0.95f), Offset(0.25f, 0.9f)
         )))
 
-        // Variables: a, b, c, x, y, z, t, s
+        // Parentheses
+        addBuiltIn("(", "(", listOf(listOf(
+            Offset(0.7f, 0.1f), Offset(0.3f, 0.5f), Offset(0.7f, 0.9f)
+        )))
+        addBuiltIn(")", ")", listOf(listOf(
+            Offset(0.3f, 0.1f), Offset(0.7f, 0.5f), Offset(0.3f, 0.9f)
+        )))
+
+        // Variables: x, y, z, a, b, c, t, s
         addBuiltIn("x", "x", listOf(
             listOf(Offset(0.2f, 0.2f), Offset(0.8f, 0.8f)),
             listOf(Offset(0.8f, 0.2f), Offset(0.2f, 0.8f))

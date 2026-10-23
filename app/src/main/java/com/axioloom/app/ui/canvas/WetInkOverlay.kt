@@ -43,6 +43,7 @@ fun WetInkOverlay(
     onSelectBlock: (UUID?) -> Unit = {},
     onMoveBlock: (UUID, Offset) -> Unit = { _, _ -> },
     onDeleteBlock: (UUID) -> Unit = {},
+    onEraseAt: ((Offset, Float) -> Unit)? = null,
     onStrokeFinished: (Stroke) -> Unit,
     onTimedStrokeFinished: ((TimedStroke) -> Unit)? = null,
     onLongPressWorld: (Offset) -> Unit,
@@ -63,6 +64,7 @@ fun WetInkOverlay(
                 onSelectBlock = onSelectBlock,
                 onMoveBlock = onMoveBlock,
                 onDeleteBlock = onDeleteBlock,
+                onEraseAt = onEraseAt,
                 onStrokeFinished = onStrokeFinished,
                 onTimedStrokeFinished = onTimedStrokeFinished,
                 onLongPressWorld = onLongPressWorld,
@@ -76,6 +78,7 @@ fun WetInkOverlay(
             view.onSelectBlock = onSelectBlock
             view.onMoveBlock = onMoveBlock
             view.onDeleteBlock = onDeleteBlock
+            view.onEraseAt = onEraseAt
             view.onStrokeFinished = onStrokeFinished
             view.onTimedStrokeFinished = onTimedStrokeFinished
             view.onLongPressWorld = onLongPressWorld
@@ -94,6 +97,7 @@ private class InkInputLayout(
     var onSelectBlock: (UUID?) -> Unit,
     var onMoveBlock: (UUID, Offset) -> Unit,
     var onDeleteBlock: (UUID) -> Unit,
+    var onEraseAt: ((Offset, Float) -> Unit)?,
     var onStrokeFinished: (Stroke) -> Unit,
     var onTimedStrokeFinished: ((TimedStroke) -> Unit)?,
     var onLongPressWorld: (Offset) -> Unit,
@@ -125,6 +129,7 @@ private class InkInputLayout(
     private val fallbackPoints = mutableListOf<InkPoint>()
     private val fallbackPath = android.graphics.Path()
     private var fallbackStrokeStartTime = 0L
+    private var eraserScreenPos: Offset? = null
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(event: MotionEvent): Boolean = true
@@ -238,6 +243,19 @@ private class InkInputLayout(
             paint.style = android.graphics.Paint.Style.FILL
             canvas.drawCircle(pos.x, pos.y, 2.5f, paint)
         }
+
+        eraserScreenPos?.let { pos ->
+            val paint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#D4515C") // Crimson
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2.0f
+                isAntiAlias = true
+            }
+            canvas.drawCircle(pos.x, pos.y, 22f, paint)
+            paint.style = android.graphics.Paint.Style.FILL
+            paint.alpha = 35
+            canvas.drawCircle(pos.x, pos.y, 22f, paint)
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -246,14 +264,27 @@ private class InkInputLayout(
         // Hardware Stylus Barrel Button Erase Shortcut
         val isBarrelButton = (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
         if (isBarrelButton) {
-            val worldPos = viewport.screenToWorld(Offset(event.x, event.y))
-            val hit = blocks.firstOrNull { b ->
-                val bounds = b.bounds
-                worldPos.x in (bounds.left - 24f)..(bounds.right + 24f) &&
-                    worldPos.y in (bounds.top - 24f)..(bounds.bottom + 24f)
-            }
-            if (hit != null) {
-                onDeleteBlock(hit.id)
+            val screenPos = Offset(event.x, event.y)
+            val worldPos = viewport.screenToWorld(screenPos)
+            val radius = 24f / viewport.scale
+            eraserScreenPos = screenPos
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    onEraseAt?.invoke(worldPos, radius)
+                    val hit = blocks.firstOrNull { b ->
+                        val bounds = b.bounds
+                        worldPos.x in (bounds.left - 24f)..(bounds.right + 24f) &&
+                            worldPos.y in (bounds.top - 24f)..(bounds.bottom + 24f)
+                    }
+                    if (hit != null) {
+                        onDeleteBlock(hit.id)
+                    }
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    eraserScreenPos = null
+                    invalidate()
+                }
             }
             if (activeStrokes.isNotEmpty()) {
                 inkView?.let { v -> activeStrokes.values.forEach { v.cancelStroke(it, event) } }
@@ -310,16 +341,31 @@ private class InkInputLayout(
 
         // Mode 2: Eraser Tool
         if (toolMode == CanvasToolMode.ERASER) {
-            val worldPos = viewport.screenToWorld(Offset(event.x, event.y))
-            if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE) {
-                val hit = blocks.firstOrNull { b ->
-                    val bounds = b.bounds
-                    worldPos.x in (bounds.left - 16f)..(bounds.right + 16f) &&
-                        worldPos.y in (bounds.top - 16f)..(bounds.bottom + 16f)
+            val screenPos = Offset(event.x, event.y)
+            val worldPos = viewport.screenToWorld(screenPos)
+            val radius = 24f / viewport.scale
+            eraserScreenPos = screenPos
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    onEraseAt?.invoke(worldPos, radius)
+                    val hit = blocks.firstOrNull { b ->
+                        val bounds = b.bounds
+                        worldPos.x in (bounds.left - 16f)..(bounds.right + 16f) &&
+                            worldPos.y in (bounds.top - 16f)..(bounds.bottom + 16f)
+                    }
+                    if (hit != null) {
+                        onDeleteBlock(hit.id)
+                    }
+                    invalidate()
                 }
-                if (hit != null) {
-                    onDeleteBlock(hit.id)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    eraserScreenPos = null
+                    invalidate()
                 }
+            }
+            if (activeStrokes.isNotEmpty()) {
+                inkView?.let { v -> activeStrokes.values.forEach { v.cancelStroke(it, event) } }
+                activeStrokes.clear()
             }
             return true
         }
