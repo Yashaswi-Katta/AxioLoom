@@ -12,8 +12,8 @@ android {
         applicationId = "com.axioloom.app"
         minSdk = 28
         targetSdk = 34
-        versionCode = 5
-        versionName = "2.1.5"
+        versionCode = 6
+        versionName = "2.1.6"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
@@ -90,6 +90,11 @@ android {
     }
 }
 
+configurations.all {
+    exclude(group = "org.apache.logging.log4j", module = "log4j-api")
+    exclude(group = "org.apache.logging.log4j", module = "log4j-core")
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.02.00"))
     implementation("androidx.activity:activity-compose:1.9.3")
@@ -110,10 +115,8 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 
     implementation("org.matheclipse:matheclipse-core:3.0.0") {
-        exclude(group = "org.apache.logging.log4j", module = "log4j-core")
         exclude(group = "com.google.guava", module = "guava")
     }
-    implementation("org.apache.logging.log4j:log4j-api:2.24.1")
     implementation("com.google.guava:guava:33.3.1-android")
 
     implementation("ru.noties:jlatexmath-android:0.2.0")
