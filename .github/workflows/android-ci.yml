@@ -74,14 +74,16 @@ jobs:
             echo "sdkmanager not found directly; Gradle auto-download will handle SDK packages."
           fi
 
-      - name: Set up Gradle 8.11.1 (Wrapper-Free Cloud Execution)
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
           cache-read-only: false
 
       - name: Run Full JUnit Test Suite (Phases 1-31)
-        run: gradle :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Upload JUnit HTML Test Report
         if: always()
@@ -109,7 +111,7 @@ jobs:
           KEYSTORE_PASSWORD: axioloom123
           KEY_ALIAS: axioloom
           KEY_PASSWORD: axioloom123
-        run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
+        run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Upload Installable Debug APK
         uses: actions/upload-artifact@v4
