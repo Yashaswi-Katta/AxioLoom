@@ -221,7 +221,7 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
 
         val gDiffNonZero = abs(gb - ga) > 1e-7
         val ratio = if (gDiffNonZero) (fb - fa) / (gb - ga) else Double.NaN
-        val ratioLatex = if (gDiffNonZero) cas.evalCommandToLatex("Together(($fb - $fa) / ($gb - ga))") else "\\text{Undefined}"
+        val ratioLatex = if (gDiffNonZero) cas.evalCommandToLatex("Together(($fb - $fa) / ($gb - $ga))") else "\\text{Undefined}"
 
         val continuous = fCont && gCont
         val differentiable = fDiff && gDiff && gDiffNonZero
@@ -273,14 +273,17 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
 
     private suspend fun evaluateNumeric(expr: String, variable: String, value: Double): Double {
         return try {
-            val transpiled = LatexToSymjaTranspiler().transpile(expr).intent
-            if (transpiled is MathIntent.EvaluationQuery) {
-                val fast = FastPlotEvaluator.evaluate(transpiled.expression, mapOf(variable to value))
-                if (fast.isFinite()) return fast
-            }
             val cmd = "N(ReplaceAll($expr, $variable -> ($value)))"
             val raw = cas.evalRaw(cmd)
-            raw.toDoubleOrNull() ?: Double.NaN
+            val cleaned = raw.replace("*10^", "e").replace("*10**", "e").trim()
+            cleaned.toDoubleOrNull() ?: run {
+                val transpiled = runCatching { LatexToSymjaTranspiler().transpile(expr).intent }.getOrNull()
+                if (transpiled is MathIntent.EvaluationQuery) {
+                    val fast = FastPlotEvaluator.evaluate(transpiled.expression, mapOf(variable to value))
+                    if (fast.isFinite()) return fast
+                }
+                Double.NaN
+            }
         } catch (_: Exception) {
             Double.NaN
         }
@@ -298,6 +301,14 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
             val denomRoots = extractRootsFromSymja(denomSolve)
             val hasSingularity = denomRoots.any { it in a..b }
             if (hasSingularity) return false to false
+
+            // Check derivative denominator singularities for differentiability on (a, b)
+            val derivDenomSolve = cas.evalRaw("N(Solve(Denominator(Together(D($expr, $variable))) == 0, $variable))")
+            val derivRoots = extractRootsFromSymja(derivDenomSolve)
+            val eps = 1e-6
+            val hasDiffSingularity = derivRoots.any { it > (a + eps) && it < (b - eps) }
+            if (hasDiffSingularity) return true to false
+
             true to true
         } catch (_: Exception) {
             true to true
@@ -311,22 +322,24 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
         b: Double
     ): Pair<List<String>, List<Double>> {
         val symRaw = cas.evalRaw(solveCommand)
-        val numRaw = cas.evalRaw("N($solveCommand)")
-
         val symList = extractSymbolicRootsFromSymja(symRaw, variable)
-        val numList = extractNumericRootsFromSymja(numRaw, variable)
 
         val validSym = mutableListOf<String>()
         val validNum = mutableListOf<Double>()
 
         val eps = 1e-6
-        for (i in numList.indices) {
-            val n = numList[i]
-            if (!n.isNaN() && n > (a + eps) && n < (b - eps)) {
-                validNum += n
-                val s = symList.getOrNull(i) ?: n.toString()
-                validSym += s
-            }
+        for (symRoot in symList) {
+            try {
+                val numRaw = cas.evalRaw("N($symRoot)")
+                if (!numRaw.contains("I")) {
+                    val cleaned = numRaw.replace("*10^", "e").replace("*10**", "e").trim()
+                    val n = cleaned.toDoubleOrNull()
+                    if (n != null && !n.isNaN() && n.isFinite() && n > (a + eps) && n < (b - eps)) {
+                        validSym += symRoot
+                        validNum += n
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         return validSym to validNum

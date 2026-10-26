@@ -69,12 +69,24 @@ fun ParameterSliderPill(
         else max(abs(initialValue).toFloat() * 2f, (initialValue * 2.0).toFloat())
     }
 
-    var rangeMin by remember(variableName) { mutableFloatStateOf(defaultMin) }
-    var rangeMax by remember(variableName) { mutableFloatStateOf(defaultMax) }
+    var rangeMin by remember(variableName, defaultMin) {
+        val minVal = if (initialValue.toFloat() < defaultMin) initialValue.toFloat() * 1.5f else defaultMin
+        mutableFloatStateOf(minVal)
+    }
+    var rangeMax by remember(variableName, defaultMax) {
+        val maxVal = if (initialValue.toFloat() > defaultMax) initialValue.toFloat() * 1.5f else defaultMax
+        mutableFloatStateOf(maxVal)
+    }
     var sliderValue by remember(variableName, initialValue) {
         mutableFloatStateOf(initialValue.toFloat().coerceIn(rangeMin, rangeMax))
     }
     var isPlaying by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.DisposableEffect(variableName) {
+        onDispose {
+            onValueChangeFinished(sliderValue.toDouble())
+        }
+    }
 
     // 60fps Oscillating animation loop
     LaunchedEffect(isPlaying, rangeMin, rangeMax) {

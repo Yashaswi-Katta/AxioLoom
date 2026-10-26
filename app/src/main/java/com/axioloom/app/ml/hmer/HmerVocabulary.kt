@@ -22,16 +22,26 @@ class HmerVocabulary private constructor(tokens: List<String>) {
     val unknownId: Int? = tokenIds[UNKNOWN_TOKEN]
 
     fun idFor(token: String): Int? = tokenIds[token] ?: unknownId
+    fun exactIdFor(token: String): Int? = tokenIds[token]
     fun tokenFor(id: Int): String = orderedTokens.getOrNull(id) ?: UNKNOWN_TOKEN
 
     /** Decodes model ids to presentation LaTeX, omitting control tokens and rendering unknowns. */
     fun decode(ids: Iterable<Int>): String = buildString {
+        var prevToken: String? = null
         ids.forEach { id ->
-            when (id) {
-                startId, endId -> Unit
-                paddingId -> Unit
-                unknownId -> append("\\square")
-                else -> append(orderedTokens.getOrNull(id) ?: "\\square")
+            val token = when (id) {
+                startId, endId -> null
+                paddingId -> null
+                unknownId -> "\\square"
+                else -> orderedTokens.getOrNull(id) ?: "\\square"
+            }
+            if (token != null) {
+                val prev = prevToken
+                if (prev != null && prev.startsWith('\\') && prev.last().isLetter() && token.first().isLetter()) {
+                    append(' ')
+                }
+                append(token)
+                prevToken = token
             }
         }
     }.trim()

@@ -109,10 +109,68 @@ class OnnxHmerEngine(
     @Volatile private var loaded: LoadedModel? = null
     @Volatile private var closed = false
 
+    fun reload(): HmerAvailability {
+        synchronized(lock) {
+            loaded?.close()
+            loaded = null
+            closed = false
+        }
+        return kotlinx.coroutines.runBlocking { open() }
+    }
+
     suspend fun open(): HmerAvailability = withContext(Dispatchers.Default) {
         synchronized(lock) {
             if (closed) return@synchronized HmerAvailability.Unavailable("HMER engine is closed")
             loaded?.let { return@synchronized HmerAvailability.Ready(it.config.kind) }
+
+            val externalManager = ExternalModelManager(appContext)
+            if (externalManager.hasCustomModel()) {
+                val customVocab = try {
+                    externalManager.getValidCustomVocabFile()?.let { HmerVocabulary.fromLines(it.readLines()) }
+                } catch (_: Exception) { null }
+                if (customVocab != null) {
+                    try {
+                        val sessionOptions = OrtSession.SessionOptions().apply {
+                            setIntraOpNumThreads(INTRA_OP_THREADS)
+                            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                        }
+                        val env = OrtEnvironment.getEnvironment()
+                        if (externalManager.isEncoderDecoder()) {
+                            val enc = env.createSession(externalManager.customEncoderFile.absolutePath, sessionOptions)
+                            val dec = env.createSession(externalManager.customDecoderFile.absolutePath, sessionOptions)
+                            val cfg = HmerModelConfig.EncoderDecoder(
+                                encoderAsset = externalManager.customEncoderFile.absolutePath,
+                                decoderAsset = externalManager.customDecoderFile.absolutePath,
+                                imageInput = "input_image",
+                                encoderMaskInput = "image_mask",
+                                featureOutput = "feature_map",
+                                decoderFeatureInput = "feature_map",
+                                decoderTokenInput = "tokens",
+                                decoderCoverageInput = "coverage_past",
+                                decoderLogitsOutput = "logits",
+                                decoderCoverageOutput = "coverage",
+                                maxSequenceLength = 128
+                            )
+                            loaded = LoadedModel(cfg, customVocab, encoder = enc, decoder = dec)
+                            return@synchronized HmerAvailability.Ready(HmerModelKind.ENCODER_DECODER)
+                        } else if (externalManager.customModelFile.exists()) {
+                            val single = env.createSession(externalManager.customModelFile.absolutePath, sessionOptions)
+                            val cfg = HmerModelConfig.SingleGraph(
+                                modelAsset = externalManager.customModelFile.absolutePath,
+                                imageInput = "input_image",
+                                maskInput = "image_mask",
+                                tokenInput = "tokens",
+                                logitsOutput = "logits",
+                                maxSequenceLength = 128
+                            )
+                            loaded = LoadedModel(cfg, customVocab, single = single)
+                            return@synchronized HmerAvailability.Ready(HmerModelKind.SINGLE_GRAPH)
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("OnnxHmerEngine", "Failed to load custom model from disk, falling back to assets", e)
+                    }
+                }
+            }
             val config = configuredModel ?: return@synchronized HmerAvailability.Unavailable(
                 "No HMER ONNX asset found. Bundle hmer/hmer.onnx or both encoder/decoder assets."
             )
@@ -165,12 +223,34 @@ class OnnxHmerEngine(
         }
     }
 
+
+
+    fun isCustomModelActive(): Boolean = synchronized(lock) {
+        val loadedEngine = loaded ?: return false
+        val asset = when (val cfg = loadedEngine.config) {
+            is HmerModelConfig.SingleGraph -> cfg.modelAsset
+            is HmerModelConfig.EncoderDecoder -> cfg.encoderAsset
+        }
+        asset.startsWith("/") || asset.contains("custom_models")
+    }
+
+    private fun isSyntheticSession(session: OrtSession): Boolean {
+        return runCatching {
+            val meta = session.metadata
+            meta.producerName == "AxioLoom-Synthetic-Exporter" ||
+                meta.customMetadata["synthetic"] == "true"
+        }.getOrDefault(false)
+    }
+
     private fun loadModel(config: HmerModelConfig, vocabulary: HmerVocabulary): LoadedModel {
         val sessions = mutableListOf<OrtSession>()
         try {
             return when (config) {
                 is HmerModelConfig.SingleGraph -> {
                     val session = createSession(config.modelAsset).also { sessions += it }
+                    if (isSyntheticSession(session)) {
+                        throw IllegalStateException("Synthetic verification stub ignored in interactive workspace")
+                    }
                     requireInputs(session, listOfNotNull(config.imageInput, config.maskInput, config.tokenInput))
                     requireOutputs(session, listOf(config.logitsOutput))
                     LoadedModel(config, vocabulary, single = session)
@@ -178,6 +258,9 @@ class OnnxHmerEngine(
                 is HmerModelConfig.EncoderDecoder -> {
                     val encoder = createSession(config.encoderAsset).also { sessions += it }
                     val decoder = createSession(config.decoderAsset).also { sessions += it }
+                    if (isSyntheticSession(encoder) || isSyntheticSession(decoder)) {
+                        throw IllegalStateException("Synthetic verification stub ignored in interactive workspace")
+                    }
                     requireInputs(encoder, listOfNotNull(config.imageInput, config.encoderMaskInput))
                     requireOutputs(encoder, listOf(config.featureOutput))
                     requireInputs(decoder, listOf(config.decoderFeatureInput, config.decoderTokenInput, config.decoderCoverageInput))
@@ -255,7 +338,7 @@ class OnnxHmerEngine(
     ): HmerInferenceResult.Recognized {
         val session = checkNotNull(model.single)
         val image = imageTensor(raster)
-        val mask = config.maskInput?.let { floatTensor(FloatArray(pixelCount(raster)) { config.imageMaskValue }, raster.shape()) }
+        val mask = config.maskInput?.let { floatTensor(raster.buildMaskArray(config.imageMaskValue, 1f), raster.shape()) }
         try {
             if (decodingStrategy == DecodingStrategy.GREEDY) {
                 val generated = mutableListOf(model.vocabulary.startId)
@@ -299,15 +382,14 @@ class OnnxHmerEngine(
                                 val logits = readFloatTensor(output.get(config.logitsOutput).orElseThrow {
                                     IllegalStateException("Missing output '${config.logitsOutput}'")
                                 })
-                                val offset = logits.first.size - model.vocabulary.size
-                                logits.first.copyOfRange(offset, logits.first.size)
+                                extractFinalStepLogits(logits.first, logits.second, model.vocabulary.size)
                             }
                         } finally {
                             tokenInput.close()
                         }
                         logitsList.add(lastStepLogits)
                     }
-                    beams = beamDecoder.step(activeBeams, logitsList, stepIndex, config.maxSequenceLength) + beams.filter { it.isEnded }
+                    beams = beamDecoder.step(activeBeams, logitsList, stepIndex, config.maxSequenceLength)
                     beams = beams.sortedByDescending { it.lengthPenalizedScore() }.distinctBy { it.tokens }.take(3)
                     stepIndex++
                 }
@@ -335,7 +417,7 @@ class OnnxHmerEngine(
         val decoder = checkNotNull(model.decoder)
         val image = imageTensor(raster)
         val encoderMask = config.encoderMaskInput?.let {
-            floatTensor(FloatArray(pixelCount(raster)) { config.imageMaskValue }, raster.shape())
+            floatTensor(raster.buildMaskArray(config.imageMaskValue, 1f), raster.shape())
         }
         try {
             val encoderInputs = HashMap<String, OnnxTensorLike>()
@@ -414,8 +496,7 @@ class OnnxHmerEngine(
                                     val updatedCoverage = readFloatTensor(decoded.get(config.decoderCoverageOutput).orElseThrow {
                                         IllegalStateException("Missing decoder output '${config.decoderCoverageOutput}'")
                                     })
-                                    val offset = logits.first.size - model.vocabulary.size
-                                    stepLogits = logits.first.copyOfRange(offset, logits.first.size)
+                                    stepLogits = extractFinalStepLogits(logits.first, logits.second, model.vocabulary.size)
                                     nextCov = updatedCoverage.first
                                 }
                             } finally {
@@ -426,7 +507,7 @@ class OnnxHmerEngine(
                             coverageList.add(nextCov)
                         }
 
-                        beams = beamDecoder.step(activeBeams, logitsList, stepIndex, config.maxSequenceLength, coverageList) + beams.filter { it.isEnded }
+                        beams = beamDecoder.step(activeBeams, logitsList, stepIndex, config.maxSequenceLength, coverageList)
                         beams = beams.sortedByDescending { it.lengthPenalizedScore() }.distinctBy { it.tokens }.take(3)
                         stepIndex++
                     }
@@ -537,4 +618,17 @@ internal fun selectGreedyToken(logits: FloatArray, shape: LongArray, vocabularyS
     }
     require(bestIndex >= 0) { "Model returned no finite logits" }
     return bestIndex
+}
+
+/** Extracts the vocabulary logits from the last sequence position of [1,V] or [1,T,V] logits with shape checks. */
+internal fun extractFinalStepLogits(logits: FloatArray, shape: LongArray, vocabularySize: Int): FloatArray {
+    require(vocabularySize > 0 && shape.isNotEmpty())
+    require(shape.last() == vocabularySize.toLong()) {
+        "Logit vocabulary dimension ${shape.last()} does not match vocabulary size $vocabularySize"
+    }
+    require(logits.size >= vocabularySize) {
+        "Logits array size ${logits.size} is smaller than vocabulary size $vocabularySize"
+    }
+    val offset = logits.size - vocabularySize
+    return logits.copyOfRange(offset, logits.size)
 }

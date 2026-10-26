@@ -23,6 +23,7 @@ object UmbraColors {
     val BorderSubtle = Color(0xFF2B2C30)     // Idle control borders, input frames, tile outlines
     val BorderFocus = Color(0xFF3E4046)      // Hover and keyboard focus borders
     val BorderAmber = Color(0xFF53493E)      // Outer border for active/latched controls
+    val BorderGreen = Color(0xFF2E4E40)      // Outer border for nominal/active telemetry
 
     // Typography Tokens
     val TextPrimary = Color(0xFFEAEAEA)      // Primary headings, active tab labels, selected text

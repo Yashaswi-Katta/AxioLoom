@@ -29,6 +29,7 @@ import com.axioloom.app.domain.model.MathIntent
 import com.axioloom.app.domain.model.SymbolicTransform
 import com.axioloom.app.domain.model.TimedStroke
 import com.axioloom.app.domain.model.definedSymbol
+import com.axioloom.app.domain.model.references
 import com.axioloom.app.domain.parser.AmbiguousSolveVariableException
 import com.axioloom.app.domain.parser.LatexToSymjaTranspiler
 import com.axioloom.app.ml.hmer.BlockRecognitionOutcome
@@ -101,6 +102,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     val dimensionalWarnings: StateFlow<Map<UUID, List<com.axioloom.app.domain.units.DimensionalMismatchWarning>>> = mutableDimensionalWarnings.asStateFlow()
     val pages: StateFlow<List<NotebookPageMeta>> = mutablePages.asStateFlow()
     val currentPage: StateFlow<NotebookPageMeta?> = mutableCurrentPage.asStateFlow()
+    val isHmerNeuralReady = MutableStateFlow(false)
 
     private var autoSaveJob: Job? = null
 
@@ -110,12 +112,18 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
         engine = hmerEngine,
         prototypeClassifier = prototypeClassifier,
         onResult = ::handleRecognitionOutcome
-    )
+    ).apply {
+        onTiming = { rMs, iMs ->
+            mutableTelemetry.update { it.copy(rasterTimeMs = rMs, hmerInferenceTimeMs = iMs) }
+        }
+    }
 
     init {
-        viewModelScope.launch {
+        val warmupJob = viewModelScope.launch(Dispatchers.Default) {
             try {
                 cas.warmUp()
+                val avail = hmerEngine.open()
+                isHmerNeuralReady.value = avail is com.axioloom.app.ml.hmer.HmerAvailability.Ready
                 mutableWarmupError.value = null
             } catch (failure: Throwable) {
                 mutableWarmupError.value = failure.message ?: "Offline CAS warm-up failed"
@@ -123,6 +131,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
         }
 
         viewModelScope.launch(Dispatchers.IO) {
+            warmupJob.join()
             try {
                 val allPages = notebookRepo.listPages()
                 mutablePages.value = allPages
@@ -134,6 +143,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
 
                 val restored = notebookRepo.loadPage(activeMeta.id, parser, graph)
                 if (restored != null && restored.strokes.isNotEmpty()) {
+                    restored.blocks.forEach { coordinator.registerTicket(it.ticket) }
                     mutableInkWorkspace.value = restored
                     updateCanUndoRedo()
                 }
@@ -186,6 +196,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
             viewModelScope.launch { graph.remove(id) }
         }
         diff.addedOrChangedBlocks.forEach { block ->
+            coordinator.registerTicket(block.ticket)
             if (block.intent != null) {
                 viewModelScope.launch { graph.upsert(block.id, block.intent, block.transform) }
             } else if (block.needsRecognition) {
@@ -199,7 +210,10 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     fun commitFinishedTimedStroke(timed: TimedStroke) {
         try {
             val previousState = mutableInkWorkspace.value
+            val tCluster0 = System.nanoTime()
             val commitResult = reducer.commit(previousState, timed)
+            val tCluster = (System.nanoTime() - tCluster0) / 1e6
+            mutableTelemetry.update { it.copy(clusteringTimeMs = tCluster) }
 
             historyManager.recordCommit(previousState)
             updateCanUndoRedo()
@@ -237,6 +251,12 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
         } catch (failure: Exception) {
             mutableInputError.value = failure.message ?: "Failed to process native stroke"
         }
+    }
+
+    fun recordMoveBlockUndo() {
+        historyManager.recordCommit(mutableInkWorkspace.value)
+        mutableCanUndo.value = historyManager.canUndo
+        mutableCanRedo.value = historyManager.canRedo
     }
 
     fun moveBlock(blockId: UUID, deltaWorld: Offset) {
@@ -450,6 +470,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
                 }
                 state.copy(blocks = updatedBlocks, version = state.version + 1)
             }
+            blocks.firstOrNull()?.let { coordinator.registerTicket(it.ticket) }
             graph.upsert(primaryId, synthesized.intent)
             scheduleAutoSave()
         }
@@ -502,7 +523,36 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
                             )
                         }
                         mutableRecognitionMessages.update { it + (ticket.blockId to sourceTag) }
+                        val tCas0 = System.nanoTime()
                         graph.upsert(ticket.blockId, transpiled.intent, targetBlock.transform)
+                        val tCas = (System.nanoTime() - tCas0) / 1e6
+                        mutableTelemetry.update { it.copy(casEvalTimeMs = tCas) }
+
+                        // Re-transpile EquationSolve blocks if newly bound symbol matches their solveTarget
+                        val definedVar = when (val inT = transpiled.intent) {
+                            is com.axioloom.app.domain.model.MathIntent.Assignment -> inT.variableName
+                            is com.axioloom.app.domain.model.MathIntent.FunctionDef -> inT.funcName
+                            else -> null
+                        }
+                        if (definedVar != null) {
+                            val allBound = graph.state.value.symbolOwners.keys.map { it.name }.toSet()
+                            currentState.blocks.filter { it.id != ticket.blockId }.forEach { otherBlock ->
+                                val eqSolve = otherBlock.intent as? com.axioloom.app.domain.model.MathIntent.EquationSolve
+                                if (eqSolve != null && (eqSolve.targetVar == definedVar || eqSolve.lhs.references().any { it.name == definedVar })) {
+                                    otherBlock.recognizedLatex?.let { rawLatex ->
+                                        try {
+                                            val retranspiled = parser.transpile(rawLatex, boundSymbols = allBound, solveTarget = eqSolve.targetVar)
+                                            mutableInkWorkspace.update { s ->
+                                                s.copy(blocks = s.blocks.map { b ->
+                                                    if (b.id == otherBlock.id) b.copy(intent = retranspiled.intent, status = BlockStatus.Dirty) else b
+                                                }, version = s.version + 1)
+                                            }
+                                            graph.upsert(otherBlock.id, retranspiled.intent, otherBlock.transform)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            }
+                        }
 
                         // Dimensional Consistency Check
                         val exprToCheck = when (val inT = transpiled.intent) {
@@ -725,10 +775,30 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
                 }
             }
 
+            populatedBlocks.forEach { coordinator.registerTicket(it.ticket) }
             mutableInkWorkspace.value = templateState.copy(blocks = populatedBlocks)
             mutableRecognitionMessages.value = emptyMap()
             mutableInputError.value = null
             scheduleAutoSave()
+        }
+    }
+
+    fun importCustomHmerModel(modelUri: android.net.Uri, vocabUri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val resolver = getApplication<Application>().contentResolver
+            val mStream = resolver.openInputStream(modelUri) ?: return@launch
+            val vStream = resolver.openInputStream(vocabUri) ?: return@launch
+            externalModelManager.importCustomModel(mStream, vStream)
+            val res = hmerEngine.reload()
+            isHmerNeuralReady.value = res is com.axioloom.app.ml.hmer.HmerAvailability.Ready
+        }
+    }
+
+    fun clearCustomHmerModel() {
+        viewModelScope.launch(Dispatchers.IO) {
+            externalModelManager.clearCustomModel()
+            val res = hmerEngine.reload()
+            isHmerNeuralReady.value = res is com.axioloom.app.ml.hmer.HmerAvailability.Ready
         }
     }
 
@@ -739,17 +809,14 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
             val tRaster = (System.nanoTime() - t0) / 1e6
 
             val tInfer0 = System.nanoTime()
-            val latexResult = try {
-                when (val outcome = hmerEngine.recognize(tensor)) {
-                    is HmerInferenceResult.Recognized -> outcome.latex.ifBlank { "y = x^2" }
-                    else -> "f(x) = x^2"
-                }
-            } catch (_: Exception) {
-                "f(x) = x^2"
-            }
+            val outcome = runCatching { hmerEngine.recognize(tensor) }.getOrNull()
             val tInfer = (System.nanoTime() - tInfer0) / 1e6
 
-            insertEquationTemplate(latexResult, Offset(200f, 200f))
+            if (outcome is HmerInferenceResult.Recognized && outcome.latex.isNotBlank()) {
+                insertEquationTemplate(outcome.latex, Offset(200f, 200f))
+            } else {
+                mutableInputError.value = "HMER ONNX model is required for camera OCR import"
+            }
 
             mutableTelemetry.update {
                 it.copy(
@@ -790,6 +857,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
                 status = com.axioloom.app.domain.model.BlockStatus.Ready
             )
 
+            coordinator.registerTicket(newBlock.ticket)
             val current = mutableInkWorkspace.value
             historyManager.recordCommit(current)
             updateCanUndoRedo()
@@ -813,7 +881,8 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
             mutableActiveSchematic.value = schematic
             if (schematic.elements.isNotEmpty()) {
                 try {
-                    val res = mnaSolver.solve(schematic.elements)
+                    val bindings = graph.state.value.toBindingSnapshot()
+                    val res = mnaSolver.solve(schematic.elements, bindings = bindings)
                     mutableMnaResult.value = res
                 } catch (e: Exception) {
                     mutableInputError.value = "Schematic MNA error: ${e.message}"
@@ -828,6 +897,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun createNewPage(title: String = "Untitled") {
+        autoSaveJob?.cancel()
         viewModelScope.launch(Dispatchers.IO) {
             val currentId = mutableCurrentPage.value?.id
             if (currentId != null) {
@@ -852,6 +922,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun switchPage(id: UUID) {
+        autoSaveJob?.cancel()
         viewModelScope.launch(Dispatchers.IO) {
             val currentId = mutableCurrentPage.value?.id
             if (currentId != null) {
@@ -872,6 +943,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
             }
 
             val loaded = notebookRepo.loadPage(id, parser, graph) ?: InkWorkspaceState()
+            loaded.blocks.forEach { coordinator.registerTicket(it.ticket) }
             mutableInkWorkspace.value = loaded
             mutableRecognitionMessages.value = emptyMap()
             mutableInputError.value = null
@@ -888,6 +960,8 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
 
     fun deleteCurrentPage() {
         val currentId = mutableCurrentPage.value?.id ?: return
+        autoSaveJob?.cancel()
+        mutableCurrentPage.value = null
         viewModelScope.launch(Dispatchers.IO) {
             val success = notebookRepo.deletePage(currentId)
             if (success) {
@@ -917,6 +991,37 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     fun setMode(mode: CasMode) {
         mutableCasMode.value = mode
         viewModelScope.launch { graph.setMode(mode) }
+    }
+
+    fun isCustomModelActive(): Boolean = hmerEngine.isCustomModelActive()
+
+    fun getCustomPrototypes(): List<com.axioloom.app.ml.hmer.SymbolPrototype> =
+        prototypeClassifier.getPrototypes().filter { it.isCustom }
+
+    fun removeCustomPrototype(proto: com.axioloom.app.ml.hmer.SymbolPrototype) {
+        prototypeClassifier.removeCustomPrototype(proto)
+    }
+
+    fun synthesizeMatrixFromWorkspace() {
+        viewModelScope.launch {
+            val state = mutableInkWorkspace.value
+            val cellClusters = state.blocks.filter { it.recognizedLatex?.isNotBlank() == true }.map {
+                com.axioloom.app.domain.clustering.CellCluster(it.bounds, it.recognizedLatex.orEmpty(), it.strokeIds)
+            }
+            val synth = spatialSynthesizer.synthesizeMatrix(state.strokes, cellClusters) ?: return@launch
+            insertEquationTemplate(synth.latex, synth.bounds.topLeft)
+        }
+    }
+
+    fun fitDataTableFromWorkspace(): com.axioloom.app.domain.stats.LinearRegressionResult? {
+        val state = mutableInkWorkspace.value
+        val cellClusters = state.blocks.filter { it.recognizedLatex?.isNotBlank() == true }.map {
+            com.axioloom.app.domain.clustering.CellCluster(it.bounds, it.recognizedLatex.orEmpty(), it.strokeIds)
+        }
+        val points = spatialSynthesizer.synthesizeDataTable(cellClusters) ?: return null
+        val result = com.axioloom.app.domain.stats.DataRegressionEngine.linearRegression(points)
+        insertEquationTemplate(result.equationLatex, androidx.compose.ui.geometry.Offset(100f, 100f))
+        return result
     }
 
     override fun onCleared() {

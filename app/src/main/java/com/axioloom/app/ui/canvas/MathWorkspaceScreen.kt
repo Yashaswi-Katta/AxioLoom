@@ -1,5 +1,7 @@
 package com.axioloom.app.ui.canvas
 
+import com.axioloom.app.domain.logic.KarnaughMinimizer
+
 import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -37,6 +39,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Divider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -143,6 +147,21 @@ enum class ControlSubTab(val label: String) {
 fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
     val context = LocalContext.current
     val workspace by viewModel.inkWorkspace.collectAsState()
+
+    val pdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    viewModel.exportPdf(out, PdfTheme.DARK_ENGINEERING)
+                }
+                Toast.makeText(context, "Exported PDF successfully", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "PDF export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     val graph by viewModel.workspace.collectAsState()
     val recognitionMessages by viewModel.recognitionMessages.collectAsState()
     val fastNumericOverrides by viewModel.fastNumericOverrides.collectAsState()
@@ -236,11 +255,65 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
             )
     }
 
-    val activePExpr = remember {
-        MathExpr.Binary(MathExpr.Op.SUBTRACT, MathExpr.Symbol("y"), MathExpr.Number("0"))
+    val (activePExpr, activeQExpr) = remember(selectedBlock?.intent, workspace.blocks) {
+        var foundP: MathExpr? = null
+        var foundQ: MathExpr? = null
+
+        val candidateExprs = mutableListOf<MathExpr>()
+        selectedBlock?.intent?.let { intent ->
+            when (intent) {
+                is MathIntent.EvaluationQuery -> candidateExprs.add(intent.expression)
+                is MathIntent.Assignment -> candidateExprs.add(intent.rhs)
+                else -> Unit
+            }
+        }
+        workspace.blocks.forEach { block ->
+            when (val intent = block.intent) {
+                is MathIntent.EvaluationQuery -> candidateExprs.add(intent.expression)
+                is MathIntent.Assignment -> candidateExprs.add(intent.rhs)
+                is MathIntent.FunctionDef -> {
+                    if (intent.funcName.equals("P", ignoreCase = true)) foundP = intent.body
+                    if (intent.funcName.equals("Q", ignoreCase = true)) foundQ = intent.body
+                }
+                else -> Unit
+            }
+        }
+
+        for (expr in candidateExprs) {
+            if (expr is MathExpr.Matrix) {
+                if (expr.rows.size == 1 && expr.rows[0].size >= 2) {
+                    foundP = expr.rows[0][0]
+                    foundQ = expr.rows[0][1]
+                    break
+                } else if (expr.rows.size >= 2 && expr.rows[0].size == 1) {
+                    foundP = expr.rows[0][0]
+                    foundQ = expr.rows[1][0]
+                    break
+                }
+            } else if (expr is MathExpr.Divergence && expr.vectorField is MathExpr.Matrix) {
+                val m = expr.vectorField as MathExpr.Matrix
+                if (m.rows.isNotEmpty() && m.rows[0].size >= 2) {
+                    foundP = m.rows[0][0]
+                    foundQ = m.rows[0][1]
+                    break
+                }
+            } else if (expr is MathExpr.Curl && expr.vectorField is MathExpr.Matrix) {
+                val m = expr.vectorField as MathExpr.Matrix
+                if (m.rows.isNotEmpty() && m.rows[0].size >= 2) {
+                    foundP = m.rows[0][0]
+                    foundQ = m.rows[0][1]
+                    break
+                }
+            }
+        }
+
+        val finalP = foundP ?: MathExpr.Binary(MathExpr.Op.SUBTRACT, MathExpr.Symbol("y"), MathExpr.Number("0"))
+        val finalQ = foundQ ?: MathExpr.Binary(MathExpr.Op.SUBTRACT, MathExpr.Number("0"), MathExpr.Symbol("x"))
+        finalP to finalQ
     }
-    val activeQExpr = remember {
-        MathExpr.Binary(MathExpr.Op.SUBTRACT, MathExpr.Number("0"), MathExpr.Symbol("x"))
+
+    LaunchedEffect(Unit) {
+        com.axioloom.app.StartupLogger.logStage(context, com.axioloom.app.StartupLogger.STAGE_READY)
     }
 
     // Automatically load derivation steps when STEPS tab is active or selected block changes
@@ -391,11 +464,21 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Prototype Mode Pill (Umbra Section 1)
+                // Dynamic HMER Mode Pill (Umbra Section 1)
+                val isHmerNeuralReady by viewModel.isHmerNeuralReady.collectAsState()
+                val isCustomModelActive = viewModel.isCustomModelActive()
+                val pillText = when {
+                    isCustomModelActive && isHmerNeuralReady -> "Custom ONNX"
+                    isHmerNeuralReady -> "Bundled ONNX"
+                    else -> "Prototype Mode"
+                }
+                val pillColor = if (isHmerNeuralReady) UmbraColors.AccentGreen else UmbraColors.AccentAmber
+                val pillBorder = if (isHmerNeuralReady) UmbraColors.BorderGreen else UmbraColors.BorderAmber
+                val pillBg = if (isHmerNeuralReady) UmbraColors.BgActiveGreen else UmbraColors.BgActiveAmber
                 Surface(
                     shape = RoundedCornerShape(3.dp),
-                    color = UmbraColors.BgActiveAmber,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, UmbraColors.BorderAmber),
+                    color = pillBg,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, pillBorder),
                     modifier = Modifier.height(26.dp)
                 ) {
                     Row(
@@ -406,11 +489,11 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
                         Box(
                             modifier = Modifier
                                 .size(5.dp)
-                                .background(UmbraColors.AccentAmber, shape = CircleShape)
+                                .background(pillColor, shape = CircleShape)
                         )
                         Text(
-                            text = "Prototype Mode",
-                            color = UmbraColors.AccentAmber,
+                            text = pillText,
+                            color = pillColor,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
@@ -538,15 +621,8 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
                             text = { Text("Export Vector PDF (.pdf)", color = UmbraColors.TextPrimary) },
                             onClick = {
                                 showOverflowMenu = false
-                                try {
-                                    val pdfFile = File(context.cacheDir, "${currentPage?.title ?: "notebook"}.pdf")
-                                    FileOutputStream(pdfFile).use { out ->
-                                        viewModel.exportPdf(out, PdfTheme.DARK_ENGINEERING)
-                                    }
-                                    Toast.makeText(context, "Saved PDF to ${pdfFile.name}", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "PDF export failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
+                                val defaultName = "${currentPage?.title ?: "notebook"}.pdf"
+                                pdfLauncher.launch(defaultName)
                             }
                         )
                         DropdownMenuItem(
@@ -678,6 +754,7 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
                             selectedBlockId = selectedBlockId,
                             onSelectBlock = { selectedBlockId = it },
                             onMoveBlock = viewModel::moveBlock,
+                            onStartMoveBlock = viewModel::recordMoveBlockUndo,
                             onDeleteBlock = viewModel::removeBlock,
                             onEraseAt = viewModel::eraseAt,
                             onStrokeFinished = viewModel::commitFinishedStroke,
@@ -762,7 +839,11 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
                             },
                             onSetToolMode = viewModel::setToolMode,
                             onSolveSchematic = viewModel::solveCurrentSchematic,
-                            mnaSolver = viewModel.mnaSolver
+                            mnaSolver = viewModel.mnaSolver,
+                            activeSchematic = activeSchematic,
+                            mnaResult = mnaResult,
+                            onSynthesizeMatrix = viewModel::synthesizeMatrixFromWorkspace,
+                            onFitDataTable = { viewModel.fitDataTableFromWorkspace() }
                         )
                     }
                 }
@@ -787,6 +868,7 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
                             selectedBlockId = selectedBlockId,
                             onSelectBlock = { selectedBlockId = it },
                             onMoveBlock = viewModel::moveBlock,
+                            onStartMoveBlock = viewModel::recordMoveBlockUndo,
                             onDeleteBlock = viewModel::removeBlock,
                             onEraseAt = viewModel::eraseAt,
                             onStrokeFinished = viewModel::commitFinishedStroke,
@@ -973,7 +1055,11 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
                                         },
                                         onSetToolMode = viewModel::setToolMode,
                                         onSolveSchematic = viewModel::solveCurrentSchematic,
-                                        mnaSolver = viewModel.mnaSolver
+                                        mnaSolver = viewModel.mnaSolver,
+                                        activeSchematic = activeSchematic,
+                                        mnaResult = mnaResult,
+                                        onSynthesizeMatrix = viewModel::synthesizeMatrixFromWorkspace,
+                                        onFitDataTable = { viewModel.fitDataTableFromWorkspace() }
                                     )
                                 }
                             }
@@ -1050,7 +1136,8 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
         ModelStatusDialog(
             status = modelStatus,
             onDismiss = { showModelStatusDialog = false },
-            onClearCustom = { viewModel.externalModelManager.clearCustomModel() }
+            onClearCustom = { viewModel.clearCustomHmerModel() },
+            onImportCustom = { mUri, vUri -> viewModel.importCustomHmerModel(mUri, vUri) }
         )
     }
 
@@ -1120,6 +1207,10 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
             onSavePrototype = { label, latex, strokes ->
                 viewModel.addCustomPrototype(label, latex, strokes)
                 Toast.makeText(context, "Calibrated prototype '$label' saved offline", Toast.LENGTH_SHORT).show()
+            },
+            customPrototypes = viewModel.getCustomPrototypes(),
+            onDeletePrototype = { proto ->
+                viewModel.removeCustomPrototype(proto)
             }
         )
     }
@@ -1227,7 +1318,11 @@ private fun EngineeringWorkbenchPanel(
     onGenerateCode: (EquationBlock) -> Unit,
     onSetToolMode: (CanvasToolMode) -> Unit,
     onSolveSchematic: () -> Unit,
-    mnaSolver: com.axioloom.app.domain.circuit.SymbolicMnaSolver
+    mnaSolver: com.axioloom.app.domain.circuit.SymbolicMnaSolver,
+    activeSchematic: com.axioloom.app.domain.circuit.RecognizedSchematic? = null,
+    mnaResult: com.axioloom.app.domain.circuit.MnaResult? = null,
+    onSynthesizeMatrix: () -> Unit = {},
+    onFitDataTable: () -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp)) {
         // -----------------------------------------------------------------
@@ -1400,7 +1495,9 @@ private fun EngineeringWorkbenchPanel(
                                 onParameterScrub = onParameterScrub,
                                 onParameterRelease = onParameterRelease,
                                 onSelectAlternative = onSelectAlternative,
-                                onGenerateCode = onGenerateCode
+                                onGenerateCode = onGenerateCode,
+                                onSynthesizeMatrix = onSynthesizeMatrix,
+                                onFitDataTable = onFitDataTable
                             )
                         }
                         WorkbenchTab.STEPS -> {
@@ -1419,23 +1516,23 @@ private fun EngineeringWorkbenchPanel(
                                                 functionDef = activeFunctionDef,
                                                 boundValues = boundValues,
                                                 allFunctions = workspace.blocks.mapNotNull { it.intent as? MathIntent.FunctionDef },
-                                                onDismiss = {}
+                                                onDismiss = { onTabSelected(WorkbenchTab.INSPECTOR) }
                                             )
                                         } else {
                                             EmptyWorkbenchCard("Define a function f(x) = ... on the canvas to view 1D plot.")
                                         }
                                     }
                                     PlotSubTab.SURFACE_3D -> {
-                                        Surface3DPlotCard(expr = active3DExpr, onClose = {})
+                                        Surface3DPlotCard(expr = active3DExpr, boundValues = boundValues, onClose = { onTabSelected(WorkbenchTab.INSPECTOR) })
                                     }
                                     PlotSubTab.VECTOR -> {
-                                        VectorFieldPlotCard(pExpr = activePExpr, qExpr = activeQExpr, onClose = {})
+                                        VectorFieldPlotCard(pExpr = activePExpr, qExpr = activeQExpr, boundValues = boundValues, onClose = { onTabSelected(WorkbenchTab.INSPECTOR) })
                                     }
                                     PlotSubTab.DSP -> {
-                                        DiscreteStemPlotCard(onClose = {})
+                                        DiscreteStemPlotCard(onClose = { onTabSelected(WorkbenchTab.INSPECTOR) })
                                     }
                                     PlotSubTab.ODE -> {
-                                        OdeSimulationCard(onClose = {})
+                                        OdeSimulationCard(onClose = { onTabSelected(WorkbenchTab.INSPECTOR) })
                                     }
                                 }
                             }
@@ -1444,8 +1541,8 @@ private fun EngineeringWorkbenchPanel(
                             Box(Modifier.fillMaxSize()) {
                                 if (activeTransferFunction != null) {
                                     when (controlSubTab) {
-                                        ControlSubTab.BODE -> TransferFunctionAnalyzerCard(analysis = activeTransferFunction, onDismiss = {})
-                                        ControlSubTab.ROOT_LOCUS -> RootLocusNyquistCard(analysis = activeTransferFunction, onClose = {})
+                                        ControlSubTab.BODE -> TransferFunctionAnalyzerCard(analysis = activeTransferFunction, onDismiss = { onTabSelected(WorkbenchTab.INSPECTOR) })
+                                        ControlSubTab.ROOT_LOCUS -> RootLocusNyquistCard(analysis = activeTransferFunction, onClose = { onTabSelected(WorkbenchTab.INSPECTOR) })
                                     }
                                 } else {
                                     EmptyWorkbenchCard("Draw a transfer function rational expression in s (e.g. H(s) = 10 / (s^2 + 3s + 2)) to analyze Bode, Poles/Zeros, and Root-Locus.")
@@ -1453,7 +1550,7 @@ private fun EngineeringWorkbenchPanel(
                             }
                         }
                         WorkbenchTab.RF_SMITH -> {
-                            SmithChartCard(onClose = {})
+                            SmithChartCard(onClose = { onTabSelected(WorkbenchTab.INSPECTOR) })
                         }
                         WorkbenchTab.CIRCUIT -> {
                             Column(Modifier.fillMaxSize()) {
@@ -1494,12 +1591,25 @@ private fun EngineeringWorkbenchPanel(
                                     }
                                 }
                                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                                    CircuitSolverSheet(solver = mnaSolver, onDismiss = {})
+                                    CircuitSolverSheet(
+                                        solver = mnaSolver,
+                                        onDismiss = { onTabSelected(WorkbenchTab.INSPECTOR) },
+                                        activeSchematic = activeSchematic,
+                                        externalMnaResult = mnaResult
+                                    )
                                 }
                             }
                         }
                         WorkbenchTab.KMAP -> {
-                            KarnaughMapCard(onDismiss = {})
+                            val targetBlock = workspace.blocks.firstOrNull { it.id == selectedBlockId }
+                                ?: workspace.blocks.firstOrNull { it.recognizedLatex?.contains("kmap", ignoreCase = true) == true }
+                            val kmapParams = targetBlock?.recognizedLatex?.let { KarnaughMinimizer.parseKmapParams(it) }
+                            KarnaughMapCard(
+                                onDismiss = { onTabSelected(WorkbenchTab.INSPECTOR) },
+                                initialNumVars = kmapParams?.numVars ?: 4,
+                                initialMinterms = kmapParams?.minterms ?: setOf(0, 1, 2, 5, 8, 9, 10),
+                                initialDontCares = kmapParams?.dontCares ?: emptySet()
+                            )
                         }
                         WorkbenchTab.CODE -> {
                             val targetBlock = workspace.blocks.firstOrNull { it.id == selectedBlockId }
@@ -1856,9 +1966,46 @@ private fun InspectorTabContent(
     onParameterScrub: (String, Double) -> Unit,
     onParameterRelease: (UUID, String, Double) -> Unit,
     onSelectAlternative: (UUID, String) -> Unit,
-    onGenerateCode: (EquationBlock) -> Unit
+    onGenerateCode: (EquationBlock) -> Unit,
+    onSynthesizeMatrix: () -> Unit = {},
+    onFitDataTable: () -> Unit = {}
 ) {
     Column(Modifier.fillMaxSize()) {
+        // Workspace Synthesis actions
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (workspace.blocks.size >= 2) {
+                Surface(
+                    onClick = {
+                        val idsToGroup = if (selectedBlockId != null) listOf(selectedBlockId) + workspace.blocks.filter { it.id != selectedBlockId }.map { it.id } else workspace.blocks.map { it.id }
+                        onGroupAsSystem(idsToGroup)
+                    },
+                    color = UmbraColors.BgElevated,
+                    shape = RoundedCornerShape(3.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, UmbraColors.BorderSubtle)
+                ) {
+                    Text("Group as System", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp, color = UmbraColors.AccentAmber)
+                }
+            }
+            Surface(
+                onClick = onSynthesizeMatrix,
+                color = UmbraColors.BgElevated,
+                shape = RoundedCornerShape(3.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, UmbraColors.BorderSubtle)
+            ) {
+                Text("Synthesize Matrix", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp, color = UmbraColors.TextSecondary)
+            }
+            Surface(
+                onClick = onFitDataTable,
+                color = UmbraColors.BgElevated,
+                shape = RoundedCornerShape(3.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, UmbraColors.BorderSubtle)
+            ) {
+                Text("Fit Data Table", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp, color = UmbraColors.TextSecondary)
+            }
+        }
         val selectedBlock = workspace.blocks.firstOrNull { it.id == selectedBlockId }
         if (selectedBlock != null) {
             Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
@@ -2098,24 +2245,64 @@ private fun statusLabel(status: BlockStatus): String = when (status) {
 private fun ModelStatusDialog(
     status: ExternalModelStatus,
     onDismiss: () -> Unit,
-    onClearCustom: () -> Unit
+    onClearCustom: () -> Unit,
+    onImportCustom: (modelUri: android.net.Uri, vocabUri: android.net.Uri) -> Unit = { _, _ -> }
 ) {
+    var selectedModelUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var selectedVocabUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    val modelPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            selectedModelUri = uri
+            selectedVocabUri?.let { vUri -> onImportCustom(uri, vUri) }
+        }
+    }
+
+    val vocabPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            selectedVocabUri = uri
+            selectedModelUri?.let { mUri -> onImportCustom(mUri, uri) }
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("HMER Model Status", color = UmbraColors.AccentAmber) },
+        title = { Text("HMER Model Configuration", color = UmbraColors.AccentAmber) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Active Source: ${status.activeSource.name}", fontWeight = FontWeight.Bold)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Active Engine: ${status.activeSource.name}", fontWeight = FontWeight.Bold)
                 if (status.hasCustomModel) {
                     Text("Custom Model: ${status.customModelPath ?: "Loaded"}", style = MaterialTheme.typography.bodySmall)
                     Text("Vocabulary Tokens: ${status.customVocabCount}", style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text("Using bundled default APK assets (hmer/hmer_vocab.txt) with Prototype Elastic DTW fallback.", style = MaterialTheme.typography.bodySmall)
                 }
+
+                Divider(color = UmbraColors.BorderSubtle)
+
+                Text("Import Custom Offline Model", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { modelPickerLauncher.launch(arrayOf("*/*")) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (selectedModelUri != null) "Model Selected" else "Pick .onnx", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { vocabPickerLauncher.launch(arrayOf("*/*")) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (selectedVocabUri != null) "Vocab Selected" else "Pick vocab.txt", fontSize = 11.sp)
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("OK") }
+            TextButton(onClick = onDismiss) { Text("Close") }
         },
         dismissButton = if (status.hasCustomModel) {
             { TextButton(onClick = { onClearCustom(); onDismiss() }) { Text("Revert to Bundled", color = UmbraColors.AccentDanger) } }
@@ -2126,7 +2313,9 @@ private fun ModelStatusDialog(
 @Composable
 private fun HandwritingCalibrationDialog(
     onDismiss: () -> Unit,
-    onSavePrototype: (label: String, latex: String, strokes: List<List<Offset>>) -> Unit
+    onSavePrototype: (label: String, latex: String, strokes: List<List<Offset>>) -> Unit,
+    customPrototypes: List<com.axioloom.app.ml.hmer.SymbolPrototype> = emptyList(),
+    onDeletePrototype: (com.axioloom.app.ml.hmer.SymbolPrototype) -> Unit = {}
 ) {
     var symbolLabel by remember { mutableStateOf("x") }
     var symbolLatex by remember { mutableStateOf("x") }
@@ -2143,6 +2332,40 @@ private fun HandwritingCalibrationDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = UmbraColors.TextSecondary
                 )
+                if (customPrototypes.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Saved Prototypes (${customPrototypes.size}):", style = MaterialTheme.typography.labelSmall, color = UmbraColors.AccentAmberDim)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        customPrototypes.forEach { proto ->
+                            Surface(
+                                color = UmbraColors.BgSurface,
+                                shape = RoundedCornerShape(4.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, UmbraColors.BorderSubtle)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(proto.label, style = MaterialTheme.typography.bodySmall, color = UmbraColors.TextPrimary)
+                                    Text(
+                                        text = "×",
+                                        color = UmbraColors.AccentDanger,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.clickable { onDeletePrototype(proto) }.padding(horizontal = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),

@@ -108,13 +108,13 @@ def build_synthetic_encoder(output_path):
         initializer=[conv_w_init, conv_b_init]
     )
 
-    model = helper.make_model(graph, producer_name="AxioLoom-Exporter", opset_imports=[helper.make_opsetid("", 16)])
+    model = helper.make_model(graph, producer_name="AxioLoom-Synthetic-Exporter", opset_imports=[helper.make_opsetid("", 16)])
     onnx.checker.check_model(model)
     onnx.save(model, output_path)
     print(f"[+] Saved synthetic encoder ONNX to {output_path}")
 
 
-def build_synthetic_decoder(output_path, vocab_size=len(DEFAULT_VOCAB)):
+def build_synthetic_decoder(output_path, vocab_size=len(DEFAULT_VOCAB), eos_idx=2, x_idx=19):
     """
     Builds hmer_decoder.onnx:
         feature_map   [1, 32, H_feat, W_feat] (Float32)
@@ -133,7 +133,6 @@ def build_synthetic_decoder(output_path, vocab_size=len(DEFAULT_VOCAB)):
     logits = helper.make_tensor_value_info("logits", TensorProto.FLOAT, [1, None, vocab_size])
     coverage = helper.make_tensor_value_info("coverage", TensorProto.FLOAT, [1, 1, None, None])
 
-    # 1. Update coverage: coverage = Add(coverage_past, delta=0.05)
     delta_val = np.array([0.05], dtype=np.float32)
     delta_init = numpy_helper.from_array(delta_val, name="coverage_delta")
 
@@ -144,20 +143,13 @@ def build_synthetic_decoder(output_path, vocab_size=len(DEFAULT_VOCAB)):
         name="update_coverage"
     )
 
-    # 2. Compute logits:
-    # Deterministic synthetic rule: emit token index 1 (<eos>) when T >= 2, or index 19 ('x') at step 1
-    # We do a linear projection from tokens embedding or a fixed logits tensor
-    # To keep ONNX valid with dynamic T:
-    # shape_tokens = Shape(tokens) -> slice T -> expand logits template
     shape_node = helper.make_node("Shape", inputs=["tokens"], outputs=["tokens_shape"])
 
-    # Create base logits for 1 step [1, 1, vocab_size]
     base_logits = np.zeros((1, 1, vocab_size), dtype=np.float32)
-    base_logits[0, 0, 1] = 5.0   # High logit for <eos>
-    base_logits[0, 0, 19] = 2.0  # Moderate logit for 'x'
+    base_logits[0, 0, eos_idx] = 5.0
+    base_logits[0, 0, x_idx] = 2.0
     base_logits_init = numpy_helper.from_array(base_logits, name="base_logits")
 
-    # Tile logits along axis 1 using [1, T, 1]
     one_val = np.array([1], dtype=np.int64)
     one_init = numpy_helper.from_array(one_val, name="one_const")
 
@@ -193,10 +185,74 @@ def build_synthetic_decoder(output_path, vocab_size=len(DEFAULT_VOCAB)):
         initializer=[delta_init, base_logits_init, one_init, slice_start, slice_end, slice_axes]
     )
 
-    model = helper.make_model(graph, producer_name="AxioLoom-Exporter", opset_imports=[helper.make_opsetid("", 16)])
+    model = helper.make_model(graph, producer_name="AxioLoom-Synthetic-Exporter", opset_imports=[helper.make_opsetid("", 16)])
     onnx.checker.check_model(model)
     onnx.save(model, output_path)
     print(f"[+] Saved synthetic decoder ONNX to {output_path}")
+
+
+def build_synthetic_single_graph(output_path, vocab_size=len(DEFAULT_VOCAB), eos_idx=2, x_idx=19):
+    """
+    Builds hmer.onnx (SingleGraph):
+        input_image [1, 1, H, W] (Float32)
+        image_mask  [1, 1, H, W] (Float32)
+        tokens      [1, T]       (Int64)
+        -> logits   [1, T, vocab_size] (Float32)
+    """
+    if onnx is None:
+        raise RuntimeError("The 'onnx' Python package is required. Run 'pip install onnx'.")
+
+    input_image = helper.make_tensor_value_info("input_image", TensorProto.FLOAT, [1, 1, None, None])
+    image_mask = helper.make_tensor_value_info("image_mask", TensorProto.FLOAT, [1, 1, None, None])
+    tokens = helper.make_tensor_value_info("tokens", TensorProto.INT64, [1, None])
+    logits = helper.make_tensor_value_info("logits", TensorProto.FLOAT, [1, None, vocab_size])
+
+    shape_node = helper.make_node("Shape", inputs=["tokens"], outputs=["tokens_shape"])
+
+    base_logits = np.zeros((1, 1, vocab_size), dtype=np.float32)
+    base_logits[0, 0, eos_idx] = 5.0
+    base_logits[0, 0, x_idx] = 2.0
+    base_logits_init = numpy_helper.from_array(base_logits, name="base_logits_single")
+
+    one_val = np.array([1], dtype=np.int64)
+    one_init = numpy_helper.from_array(one_val, name="one_const_single")
+
+    slice_start = numpy_helper.from_array(np.array([1], dtype=np.int64), name="slice_start_single")
+    slice_end = numpy_helper.from_array(np.array([2], dtype=np.int64), name="slice_end_single")
+    slice_axes = numpy_helper.from_array(np.array([0], dtype=np.int64), name="slice_axes_single")
+
+    slice_node = helper.make_node(
+        "Slice",
+        inputs=["tokens_shape", "slice_start_single", "slice_end_single", "slice_axes_single"],
+        outputs=["t_dim_single"]
+    )
+
+    concat_node = helper.make_node(
+        "Concat",
+        inputs=["one_const_single", "t_dim_single", "one_const_single"],
+        outputs=["tile_repeats_single"],
+        axis=0
+    )
+
+    tile_node = helper.make_node(
+        "Tile",
+        inputs=["base_logits_single", "tile_repeats_single"],
+        outputs=["logits"],
+        name="tile_logits_single"
+    )
+
+    graph = helper.make_graph(
+        nodes=[shape_node, slice_node, concat_node, tile_node],
+        name="SyntheticHmerSingleGraph",
+        inputs=[input_image, image_mask, tokens],
+        outputs=[logits],
+        initializer=[base_logits_init, one_init, slice_start, slice_end, slice_axes]
+    )
+
+    model = helper.make_model(graph, producer_name="AxioLoom-Synthetic-Exporter", opset_imports=[helper.make_opsetid("", 16)])
+    onnx.checker.check_model(model)
+    onnx.save(model, output_path)
+    print(f"[+] Saved synthetic single-graph ONNX to {output_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -260,13 +316,19 @@ def main():
     if args.mode == "synthetic":
         encoder_path = os.path.join(args.output_dir, "hmer_encoder.onnx")
         decoder_path = os.path.join(args.output_dir, "hmer_decoder.onnx")
+        single_path = os.path.join(args.output_dir, "hmer.onnx")
+
+        with open(vocab_path, "r", encoding="utf-8") as vf:
+            vocab_tokens = [line.strip() for line in vf if line.strip()]
+        eos_idx = vocab_tokens.index("<eos>") if "<eos>" in vocab_tokens else 2
+        x_idx = vocab_tokens.index("x") if "x" in vocab_tokens else 1
+
         build_synthetic_encoder(encoder_path)
-        build_synthetic_decoder(decoder_path, vocab_size=vocab_size)
+        build_synthetic_decoder(decoder_path, vocab_size=vocab_size, eos_idx=eos_idx, x_idx=x_idx)
+        build_synthetic_single_graph(single_path, vocab_size=vocab_size, eos_idx=eos_idx, x_idx=x_idx)
         
-        # Also provide single-graph copies for backward-compatible loaders
         import shutil
-        shutil.copyfile(encoder_path, os.path.join(args.output_dir, "hmer.onnx"))
-        shutil.copyfile(encoder_path, os.path.join(args.output_dir, "hmer_model.onnx"))
+        shutil.copyfile(single_path, os.path.join(args.output_dir, "hmer_model.onnx"))
         print("\n[SUCCESS] Synthetic HMER assets generated successfully!")
         print(f"Assets directory: {os.path.abspath(args.output_dir)}")
     else:

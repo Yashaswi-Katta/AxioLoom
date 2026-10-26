@@ -42,6 +42,7 @@ fun WetInkOverlay(
     selectedBlockId: UUID? = null,
     onSelectBlock: (UUID?) -> Unit = {},
     onMoveBlock: (UUID, Offset) -> Unit = { _, _ -> },
+    onStartMoveBlock: (() -> Unit)? = null,
     onDeleteBlock: (UUID) -> Unit = {},
     onEraseAt: ((Offset, Float) -> Unit)? = null,
     onStrokeFinished: (Stroke) -> Unit,
@@ -63,6 +64,7 @@ fun WetInkOverlay(
                 selectedBlockId = selectedBlockId,
                 onSelectBlock = onSelectBlock,
                 onMoveBlock = onMoveBlock,
+                onStartMoveBlock = onStartMoveBlock,
                 onDeleteBlock = onDeleteBlock,
                 onEraseAt = onEraseAt,
                 onStrokeFinished = onStrokeFinished,
@@ -77,6 +79,7 @@ fun WetInkOverlay(
             view.selectedBlockId = selectedBlockId
             view.onSelectBlock = onSelectBlock
             view.onMoveBlock = onMoveBlock
+            view.onStartMoveBlock = onStartMoveBlock
             view.onDeleteBlock = onDeleteBlock
             view.onEraseAt = onEraseAt
             view.onStrokeFinished = onStrokeFinished
@@ -96,6 +99,7 @@ private class InkInputLayout(
     var selectedBlockId: UUID?,
     var onSelectBlock: (UUID?) -> Unit,
     var onMoveBlock: (UUID, Offset) -> Unit,
+    var onStartMoveBlock: (() -> Unit)? = null,
     var onDeleteBlock: (UUID) -> Unit,
     var onEraseAt: ((Offset, Float) -> Unit)?,
     var onStrokeFinished: (Stroke) -> Unit,
@@ -271,14 +275,6 @@ private class InkInputLayout(
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                     onEraseAt?.invoke(worldPos, radius)
-                    val hit = blocks.firstOrNull { b ->
-                        val bounds = b.bounds
-                        worldPos.x in (bounds.left - 24f)..(bounds.right + 24f) &&
-                            worldPos.y in (bounds.top - 24f)..(bounds.bottom + 24f)
-                    }
-                    if (hit != null) {
-                        onDeleteBlock(hit.id)
-                    }
                     invalidate()
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -308,6 +304,7 @@ private class InkInputLayout(
                         onSelectBlock(hit.id)
                         lastDragWorld = worldPos
                         lastPanScreen = null
+                        onStartMoveBlock?.invoke()
                     } else {
                         draggingBlockId = null
                         onSelectBlock(null)
@@ -353,7 +350,7 @@ private class InkInputLayout(
                         worldPos.x in (bounds.left - 16f)..(bounds.right + 16f) &&
                             worldPos.y in (bounds.top - 16f)..(bounds.bottom + 16f)
                     }
-                    if (hit != null) {
+                    if (hit != null && (onEraseAt == null || hit.strokes.all { !it.hasNativeStroke })) {
                         onDeleteBlock(hit.id)
                     }
                     invalidate()
@@ -369,6 +366,9 @@ private class InkInputLayout(
             }
             return true
         }
+
+        // Process 2-finger pan/zoom gesture detector across all drawing engines
+        runCatching { gestureDetector.onTouchEvent(event) }
 
         // Mode 3: Draw Tool (Standard Canvas Fallback if native Ink view unavailable)
         val nativeView = inkView
@@ -417,7 +417,6 @@ private class InkInputLayout(
 
         // Mode 3: Jetpack Ink native accelerated drawing & 2-finger pan/zoom
         runCatching { predictor?.record(event) }
-        runCatching { gestureDetector.onTouchEvent(event) }
         if (suppressCurrentGesture) {
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 suppressCurrentGesture = false

@@ -90,7 +90,17 @@ fun DryInkCanvas(
                         block.strokes.forEach { timedStroke ->
                             if (strokeRenderer != null && timedStroke.hasNativeStroke) {
                                 val ok = runCatching {
-                                    strokeRenderer.draw(canvas, timedStroke.stroke, AffineTransform.IDENTITY)
+                                    if (timedStroke.translationOffset != androidx.compose.ui.geometry.Offset.Zero) {
+                                        val saveCount = canvas.save()
+                                        canvas.translate(timedStroke.translationOffset.x, timedStroke.translationOffset.y)
+                                        try {
+                                            strokeRenderer.draw(canvas, timedStroke.stroke, AffineTransform.IDENTITY)
+                                        } finally {
+                                            canvas.restoreToCount(saveCount)
+                                        }
+                                    } else {
+                                        strokeRenderer.draw(canvas, timedStroke.stroke, AffineTransform.IDENTITY)
+                                    }
                                 }.isSuccess
                                 if (!ok) {
                                     drawFallbackStroke(canvas, timedStroke)

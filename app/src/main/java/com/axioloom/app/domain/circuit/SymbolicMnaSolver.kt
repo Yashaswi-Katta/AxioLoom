@@ -1,6 +1,7 @@
 package com.axioloom.app.domain.circuit
 
 import com.axioloom.app.domain.cas.OfflineCasEngine
+import com.axioloom.app.domain.model.BindingSnapshot
 import com.axioloom.app.domain.model.EngineeringConstants
 import com.axioloom.app.domain.model.MathExpr
 import com.axioloom.app.domain.model.MathIntent
@@ -35,7 +36,8 @@ data class MnaResult(
     val nodeVoltages: Map<Int, String>,
     val sourceCurrents: Map<String, String>,
     val theveninVoltage: String? = null,
-    val theveninImpedance: String? = null
+    val theveninImpedance: String? = null,
+    val rawNodeVoltages: Map<Int, String> = emptyMap()
 )
 
 /**
@@ -137,7 +139,8 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
      */
     suspend fun solve(
         elements: List<CircuitElement>,
-        theveninPort: Pair<Int, Int>? = null
+        theveninPort: Pair<Int, Int>? = null,
+        bindings: BindingSnapshot = BindingSnapshot()
     ): MnaResult {
         // 1. Identify non-ground nodes and independent voltage sources
         var maxNode = 0
@@ -176,16 +179,22 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
         val (gMatrix, iVector) = buildMnaSystem(elements, numNodes, vSources, dim)
 
         // 3. Solve via CAS: LinearSolve(G, i)
-        val solvedValues = solveLinearSystem(gMatrix, iVector, dim)
+        val solvedValues = solveLinearSystem(gMatrix, iVector, dim, bindings)
+
+        val rawNodeVoltages = mutableMapOf<Int, String>()
+        for (n in 1..numNodes) {
+            rawNodeVoltages[n] = solvedValues.getOrElse(n - 1) { "0" }
+        }
 
         val nodeVoltages = mutableMapOf<Int, String>()
         for (n in 1..numNodes) {
-            nodeVoltages[n] = solvedValues.getOrElse(n - 1) { "0" }
+            nodeVoltages[n] = SymjaCompiler.decode(rawNodeVoltages[n] ?: "0")
         }
 
         val sourceCurrents = mutableMapOf<String, String>()
         for ((idx, v) in vSources.withIndex()) {
-            sourceCurrents[v.name] = solvedValues.getOrElse(numNodes + idx) { "0" }
+            val rawI = solvedValues.getOrElse(numNodes + idx) { "0" }
+            sourceCurrents[v.name] = SymjaCompiler.decode(rawI)
         }
 
         // 4. Compute Thevenin equivalent if port specified
@@ -194,15 +203,12 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
 
         if (theveninPort != null) {
             val (nA, nB) = theveninPort
-            val vA = if (nA == 0) "0" else (nodeVoltages[nA] ?: "0")
-            val vB = if (nB == 0) "0" else (nodeVoltages[nB] ?: "0")
+            val vA = if (nA == 0) "0" else (rawNodeVoltages[nA] ?: "0")
+            val vB = if (nB == 0) "0" else (rawNodeVoltages[nB] ?: "0")
 
-            // Vth = Simplify(vA - vB)
-            val vThRaw = cas.evaluate(MathIntent.EvaluationQuery(
-                MathExpr.Binary(MathExpr.Op.SUBTRACT, parser.transpile(vA).intent.let { (it as MathIntent.EvaluationQuery).expression },
-                                                      parser.transpile(vB).intent.let { (it as MathIntent.EvaluationQuery).expression })
-            )).expression
-            vTh = vThRaw
+            // Vth = Simplify(vA - vB) evaluated directly on Symja CAS
+            val vThRaw = cas.evalRaw("Simplify(($vA) - ($vB))")
+            vTh = SymjaCompiler.decode(vThRaw)
 
             // Zth: Zero all independent sources, inject 1A test source from nB to nA
             val passiveElements = elements.mapNotNull { el ->
@@ -216,14 +222,11 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
             // Test current: enters nA, leaves nB
             passiveElements.add(CircuitElement.CurrentSource("__Itest", nodeFrom = nB, nodeTo = nA, current = MathExpr.Number("1")))
 
-            val testRes = solve(passiveElements, theveninPort = null)
-            val vTestA = if (nA == 0) "0" else (testRes.nodeVoltages[nA] ?: "0")
-            val vTestB = if (nB == 0) "0" else (testRes.nodeVoltages[nB] ?: "0")
-            val zThRaw = cas.evaluate(MathIntent.EvaluationQuery(
-                MathExpr.Binary(MathExpr.Op.SUBTRACT, parser.transpile(vTestA).intent.let { (it as MathIntent.EvaluationQuery).expression },
-                                                      parser.transpile(vTestB).intent.let { (it as MathIntent.EvaluationQuery).expression })
-            )).expression
-            zTh = zThRaw
+            val testRes = solve(passiveElements, theveninPort = null, bindings = bindings)
+            val vTestA = if (nA == 0) "0" else (testRes.rawNodeVoltages[nA] ?: "0")
+            val vTestB = if (nB == 0) "0" else (testRes.rawNodeVoltages[nB] ?: "0")
+            val zThRaw = cas.evalRaw("Simplify(($vTestA) - ($vTestB))")
+            zTh = SymjaCompiler.decode(zThRaw)
         }
 
         val gLatex = formatMatrixLatex(gMatrix, dim)
@@ -236,7 +239,8 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
             nodeVoltages = nodeVoltages,
             sourceCurrents = sourceCurrents,
             theveninVoltage = vTh,
-            theveninImpedance = zTh
+            theveninImpedance = zTh,
+            rawNodeVoltages = rawNodeVoltages
         )
     }
 
@@ -321,14 +325,15 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
     private suspend fun solveLinearSystem(
         g: Array<Array<MathExpr>>,
         iVec: Array<MathExpr>,
-        dim: Int
+        dim: Int,
+        bindings: BindingSnapshot = BindingSnapshot()
     ): List<String> {
         // Render Symja LinearSolve command: LinearSolve({{g11, g12, ...}, ...}, {i1, i2, ...})
         val gRows = g.map { row ->
-            row.joinToString(",", "{", "}") { SymjaCompiler.compile(MathIntent.EvaluationQuery(it)).command }
+            row.joinToString(",", "{", "}") { SymjaCompiler.compile(MathIntent.EvaluationQuery(it), bindings).command }
         }.joinToString(",", "{", "}")
 
-        val iList = iVec.joinToString(",", "{", "}") { SymjaCompiler.compile(MathIntent.EvaluationQuery(it)).command }
+        val iList = iVec.joinToString(",", "{", "}") { SymjaCompiler.compile(MathIntent.EvaluationQuery(it), bindings).command }
         val cmd = "Together(LinearSolve($gRows,$iList))"
 
         val rawResult = cas.evalRaw(cmd)
@@ -336,7 +341,7 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
         val clean = rawResult.trim().removePrefix("{").removeSuffix("}").trim()
         if (clean.isBlank()) return List(dim) { "0" }
 
-        return splitSymjaList(clean)
+        return splitSymjaList(clean).map { SymjaCompiler.decode(it) }
     }
 
     private fun splitSymjaList(listStr: String): List<String> {

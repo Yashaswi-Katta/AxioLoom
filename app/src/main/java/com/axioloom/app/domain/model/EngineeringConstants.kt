@@ -36,13 +36,14 @@ object EngineeringConstants {
             .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\(?:text|mathrm)\\s*\\{\\s*p\\s*}")) { "(${it.groupValues[1]} * 10^-12)" }
             // Handle \mu command directly: 10\mu
             .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\mu\\b")) { "(${it.groupValues[1]} * 10^-6)" }
-            // Handle bare SI characters immediately adjacent to numbers: e.g. 4.7k, 10u, 2.4G, 100n, 22p
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*G(?![a-zA-Z])")) { "(${it.groupValues[1]} * 10^9)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*M(?![a-zA-Z])")) { "(${it.groupValues[1]} * 10^6)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*k(?![a-zA-Z])")) { "(${it.groupValues[1]} * 10^3)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*u(?![a-zA-Z])")) { "(${it.groupValues[1]} * 10^-6)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*n(?![a-zA-Z])")) { "(${it.groupValues[1]} * 10^-9)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*p(?![a-zA-Z])")) { "(${it.groupValues[1]} * 10^-12)" }
+            // Handle bare SI characters immediately adjacent to numbers: e.g. 4.7k, 100m, 10u, 2.4G, 100n, 22p
+            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)G(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^9)" }
+            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)M(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^6)" }
+            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)k(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^3)" }
+            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)m(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^-3)" }
+            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)u(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^-6)" }
+            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)n(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^-9)" }
+            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)p(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^-12)" }
 
         return clean
     }
@@ -58,6 +59,7 @@ object EngineeringConstants {
         "eps_0" to MathExpr.Number("8.8541878128e-12"),   // Vacuum permittivity (F/m)
         "mu_0" to MathExpr.Number("1.25663706212e-6"),    // Vacuum permeability (H/m)
         "h_0" to MathExpr.Number("6.62607015e-34"),       // Planck constant (J*s)
+        "hbar" to MathExpr.Number("1.054571817e-34"),     // Reduced Planck constant (J*s)
         "g_0" to MathExpr.Number("9.80665")              // Standard gravity (m/s^2)
     )
 }

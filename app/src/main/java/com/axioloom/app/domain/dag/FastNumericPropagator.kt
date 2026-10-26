@@ -53,13 +53,20 @@ object FastNumericPropagator {
     ): Map<UUID, FastNumericResult> = withContext(Dispatchers.Default) {
         val blockMap = blocks.associateBy { it.id }
         val bindings = mutableMapOf<String, Double>()
+        val functions = blocks.mapNotNull { it.intent as? MathIntent.FunctionDef }.associateBy { it.funcName }
 
-        // 1. Seed initial bindings from existing graph scalar results
+        // 1. Seed initial bindings from existing graph scalar results or evaluate rhs numerically
         graph.blocks.forEach { (id, blockState) ->
-            val defVar = (blockState.intent as? MathIntent.Assignment)?.variableName
-            if (defVar != null) {
-                blockState.result?.expression?.toDoubleOrNull()?.let {
-                    bindings[defVar] = it
+            val assignment = blockState.intent as? MathIntent.Assignment
+            if (assignment != null) {
+                val numVal = blockState.result?.expression?.toDoubleOrNull()
+                if (numVal != null) {
+                    bindings[assignment.variableName] = numVal
+                } else {
+                    val evaluated = evaluateExpr(assignment.rhs, bindings, functions)
+                    if (!evaluated.isNaN()) {
+                        bindings[assignment.variableName] = evaluated
+                    }
                 }
             }
         }
@@ -70,8 +77,47 @@ object FastNumericPropagator {
         val results = mutableMapOf<UUID, FastNumericResult>()
 
         // 3. Evaluate blocks in topological order
-        val allIds = blocks.map { it.id }
-        for (id in allIds) {
+        val inDegree = mutableMapOf<UUID, Int>()
+        val dependents = mutableMapOf<UUID, MutableList<UUID>>()
+        val blockIdSet = blocks.map { it.id }.toSet()
+
+        for (id in blockIdSet) {
+            inDegree[id] = 0
+        }
+
+        for (id in blockIdSet) {
+            val deps = graph.dependencies[id]?.filter { it in blockIdSet } ?: emptyList()
+            inDegree[id] = deps.size
+            for (dep in deps) {
+                dependents.getOrPut(dep) { mutableListOf() }.add(id)
+            }
+        }
+
+        val queue = ArrayDeque<UUID>()
+        for ((id, deg) in inDegree) {
+            if (deg == 0) queue.add(id)
+        }
+
+        val orderedIds = mutableListOf<UUID>()
+        while (queue.isNotEmpty()) {
+            val curr = queue.removeFirst()
+            orderedIds.add(curr)
+            dependents[curr]?.forEach { dep ->
+                val remaining = (inDegree[dep] ?: 1) - 1
+                inDegree[dep] = remaining
+                if (remaining == 0) {
+                    queue.add(dep)
+                }
+            }
+        }
+
+        for (b in blocks) {
+            if (b.id !in orderedIds) {
+                orderedIds.add(b.id)
+            }
+        }
+
+        for (id in orderedIds) {
             val block = blockMap[id] ?: continue
             val intent = block.intent ?: continue
 
@@ -80,7 +126,7 @@ object FastNumericPropagator {
                     val evaluated = if (intent.variableName in overrides) {
                         overrides.getValue(intent.variableName)
                     } else {
-                        evaluateExpr(intent.rhs, bindings)
+                        evaluateExpr(intent.rhs, bindings, functions)
                     }
                     if (!evaluated.isNaN()) {
                         bindings[intent.variableName] = evaluated
@@ -88,7 +134,7 @@ object FastNumericPropagator {
                     }
                 }
                 is MathIntent.EvaluationQuery -> {
-                    val evaluated = evaluateExpr(intent.expression, bindings)
+                    val evaluated = evaluateExpr(intent.expression, bindings, functions)
                     if (!evaluated.isNaN()) {
                         results[id] = FastNumericResult(evaluated, formatSignificant(evaluated, 4))
                     }
@@ -100,7 +146,12 @@ object FastNumericPropagator {
         results
     }
 
-    fun evaluateExpr(expr: MathExpr, bindings: Map<String, Double>): Double = when (expr) {
+    fun evaluateExpr(
+        expr: MathExpr,
+        bindings: Map<String, Double>,
+        functions: Map<String, MathIntent.FunctionDef> = emptyMap(),
+        depth: Int = 0
+    ): Double = when (expr) {
         is MathExpr.Number -> expr.value.toDoubleOrNull() ?: Double.NaN
         is MathExpr.Constant -> when (expr) {
             MathExpr.Constant.PI -> Math.PI
@@ -110,12 +161,12 @@ object FastNumericPropagator {
         }
         is MathExpr.Symbol -> bindings[expr.name] ?: Double.NaN
         is MathExpr.Unary -> {
-            val v = evaluateExpr(expr.value, bindings)
+            val v = evaluateExpr(expr.value, bindings, functions, depth)
             if (v.isNaN()) Double.NaN else if (expr.negative) -v else v
         }
         is MathExpr.Binary -> {
-            val left = evaluateExpr(expr.left, bindings)
-            val right = evaluateExpr(expr.right, bindings)
+            val left = evaluateExpr(expr.left, bindings, functions, depth)
+            val right = evaluateExpr(expr.right, bindings, functions, depth)
             if (left.isNaN() || right.isNaN()) Double.NaN else when (expr.op) {
                 MathExpr.Op.ADD -> left + right
                 MathExpr.Op.SUBTRACT -> left - right
@@ -129,7 +180,7 @@ object FastNumericPropagator {
             }
         }
         is MathExpr.Builtin -> {
-            val arg = if (expr.arguments.isNotEmpty()) evaluateExpr(expr.arguments[0], bindings) else Double.NaN
+            val arg = if (expr.arguments.isNotEmpty()) evaluateExpr(expr.arguments[0], bindings, functions, depth) else Double.NaN
             if (arg.isNaN()) Double.NaN else when (expr.function) {
                 MathExpr.Function.SIN -> sin(arg)
                 MathExpr.Function.COS -> cos(arg)
@@ -152,18 +203,18 @@ object FastNumericPropagator {
         }
         is MathExpr.Integral -> {
             if (expr.lower != null && expr.upper != null) {
-                val a = evaluateExpr(expr.lower, bindings)
-                val b = evaluateExpr(expr.upper, bindings)
+                val a = evaluateExpr(expr.lower, bindings, functions, depth)
+                val b = evaluateExpr(expr.upper, bindings, functions, depth)
                 if (a.isNaN() || b.isNaN() || a == b) {
                     if (a == b) 0.0 else Double.NaN
                 } else {
-                    quadrature16(expr.body, expr.variable, a, b, bindings)
+                    quadrature16(expr.body, expr.variable, a, b, bindings, functions, depth)
                 }
             } else Double.NaN
         }
         is MathExpr.Relational -> {
-            val l = evaluateExpr(expr.left, bindings)
-            val r = evaluateExpr(expr.right, bindings)
+            val l = evaluateExpr(expr.left, bindings, functions, depth)
+            val r = evaluateExpr(expr.right, bindings, functions, depth)
             if (l.isNaN() || r.isNaN()) Double.NaN else {
                 val holds = when (expr.op) {
                     MathExpr.RelOp.LT -> l < r
@@ -180,37 +231,54 @@ object FastNumericPropagator {
         is MathExpr.Piecewise -> {
             var res = Double.NaN
             for (branch in expr.branches) {
-                val cond = evaluateExpr(branch.condition, bindings)
+                val cond = evaluateExpr(branch.condition, bindings, functions, depth)
                 if (!cond.isNaN() && cond > 0.5) {
-                    res = evaluateExpr(branch.value, bindings)
+                    res = evaluateExpr(branch.value, bindings, functions, depth)
                     break
                 }
             }
-            if (res.isNaN()) evaluateExpr(expr.defaultExpr, bindings) else res
+            if (res.isNaN()) evaluateExpr(expr.defaultExpr, bindings, functions, depth) else res
         }
         is MathExpr.Call -> {
-            val arg = if (expr.arguments.isNotEmpty()) evaluateExpr(expr.arguments[0], bindings) else Double.NaN
-            bindings[expr.function]?.let { it * arg } ?: Double.NaN
+            if (depth > 16) Double.NaN
+            else {
+                val funcDef = functions[expr.function]
+                if (funcDef != null && expr.arguments.size == funcDef.params.size) {
+                    val evaluatedArgs = expr.arguments.map { evaluateExpr(it, bindings, functions, depth + 1) }
+                    val localBindings = bindings + funcDef.params.zip(evaluatedArgs).toMap()
+                    evaluateExpr(funcDef.body, localBindings, functions, depth + 1)
+                } else {
+                    val arg = if (expr.arguments.isNotEmpty()) evaluateExpr(expr.arguments[0], bindings, functions, depth + 1) else Double.NaN
+                    bindings[expr.function]?.let { it * arg } ?: Double.NaN
+                }
+            }
         }
         is MathExpr.Phasor -> {
-            val mag = evaluateExpr(expr.magnitude, bindings)
-            val deg = evaluateExpr(expr.angleDegrees, bindings)
+            val mag = evaluateExpr(expr.magnitude, bindings, functions, depth)
+            val deg = evaluateExpr(expr.angleDegrees, bindings, functions, depth)
             if (mag.isNaN() || deg.isNaN()) Double.NaN else mag * cos(deg * Math.PI / 180.0)
         }
         is MathExpr.Derivative -> {
-            val step = 1e-5
+            val step = 1e-4
             val x0 = bindings[expr.variable] ?: 0.0
-            val y1 = evaluateExpr(expr.body, bindings + (expr.variable to x0 + step))
-            val y0 = evaluateExpr(expr.body, bindings + (expr.variable to x0 - step))
-            if (y1.isNaN() || y0.isNaN()) Double.NaN else (y1 - y0) / (2.0 * step)
+            if (expr.order <= 1) {
+                val y1 = evaluateExpr(expr.body, bindings + (expr.variable to x0 + step), functions, depth)
+                val y0 = evaluateExpr(expr.body, bindings + (expr.variable to x0 - step), functions, depth)
+                if (y1.isNaN() || y0.isNaN()) Double.NaN else (y1 - y0) / (2.0 * step)
+            } else {
+                val lowerOrder = expr.copy(order = expr.order - 1)
+                val d1 = evaluateExpr(lowerOrder, bindings + (expr.variable to x0 + step), functions, depth + 1)
+                val d0 = evaluateExpr(lowerOrder, bindings + (expr.variable to x0 - step), functions, depth + 1)
+                if (d1.isNaN() || d0.isNaN()) Double.NaN else (d1 - d0) / (2.0 * step)
+            }
         }
         is MathExpr.Sum -> {
-            val low = evaluateExpr(expr.lower, bindings).roundToInt()
-            val high = evaluateExpr(expr.upper, bindings).roundToInt()
+            val low = evaluateExpr(expr.lower, bindings, functions, depth).roundToInt()
+            val high = evaluateExpr(expr.upper, bindings, functions, depth).roundToInt()
             if (low > high || high - low > 10_000) Double.NaN else {
                 var sum = 0.0
                 for (k in low..high) {
-                    val term = evaluateExpr(expr.body, bindings + (expr.variable to k.toDouble()))
+                    val term = evaluateExpr(expr.body, bindings + (expr.variable to k.toDouble()), functions, depth)
                     if (term.isNaN()) { sum = Double.NaN; break }
                     sum += term
                 }
@@ -218,22 +286,23 @@ object FastNumericPropagator {
             }
         }
         is MathExpr.Limit -> {
-            val towardVal = evaluateExpr(expr.toward, bindings)
-            if (towardVal.isNaN()) Double.NaN else evaluateExpr(expr.body, bindings + (expr.variable to towardVal))
+            val towardVal = evaluateExpr(expr.toward, bindings, functions, depth)
+            if (towardVal.isNaN()) Double.NaN else evaluateExpr(expr.body, bindings + (expr.variable to towardVal), functions, depth)
         }
         is MathExpr.Matrix -> Double.NaN
         is MathExpr.LaplaceTransform,
         is MathExpr.InverseLaplaceTransform,
         is MathExpr.ZTransform,
+        is MathExpr.InverseZTransform,
         is MathExpr.Gradient,
         is MathExpr.Divergence,
         is MathExpr.Curl -> Double.NaN
-        is MathExpr.TaylorSeries -> evaluateExpr(expr.body, bindings)
+        is MathExpr.TaylorSeries -> evaluateExpr(expr.body, bindings, functions, depth)
         is MathExpr.DiscreteSequence -> {
-            if (expr.elements.isNotEmpty()) evaluateExpr(expr.elements[0], bindings) else Double.NaN
+            if (expr.elements.isNotEmpty()) evaluateExpr(expr.elements[0], bindings, functions, depth) else Double.NaN
         }
         is MathExpr.IndexedSequence -> {
-            bindings["${expr.name}_${evaluateExpr(expr.index, bindings).roundToInt()}"] ?: Double.NaN
+            bindings["${expr.name}_${evaluateExpr(expr.index, bindings, functions, depth).roundToInt()}"] ?: Double.NaN
         }
         is MathExpr.DiscreteConvolution,
         is MathExpr.CircularConvolution,
@@ -245,7 +314,9 @@ object FastNumericPropagator {
         variable: String,
         a: Double,
         b: Double,
-        bindings: Map<String, Double>
+        bindings: Map<String, Double>,
+        functions: Map<String, MathIntent.FunctionDef> = emptyMap(),
+        depth: Int = 0
     ): Double {
         val c1 = (b - a) / 2.0
         val c2 = (a + b) / 2.0
@@ -257,10 +328,10 @@ object FastNumericPropagator {
             val wi = GAUSS_W[i]
 
             scoped[variable] = c1 * xi + c2
-            val fPos = evaluateExpr(body, scoped)
+            val fPos = evaluateExpr(body, scoped, functions, depth)
 
             scoped[variable] = -c1 * xi + c2
-            val fNeg = evaluateExpr(body, scoped)
+            val fNeg = evaluateExpr(body, scoped, functions, depth)
 
             if (fPos.isNaN() || fNeg.isNaN()) return Double.NaN
             sum += wi * (fPos + fNeg)

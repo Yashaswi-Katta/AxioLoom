@@ -47,6 +47,30 @@ data class DimensionVector(
         intensityCd = intensityCd * scalar
     )
 
+    operator fun div(divisor: Int): DimensionVector {
+        require(divisor != 0) { "Cannot divide dimension vector by zero" }
+        return DimensionVector(
+            lengthM = lengthM / divisor,
+            massKg = massKg / divisor,
+            timeS = timeS / divisor,
+            currentA = currentA / divisor,
+            temperatureK = temperatureK / divisor,
+            amountMol = amountMol / divisor,
+            intensityCd = intensityCd / divisor
+        )
+    }
+
+    fun isDivisibleBy(divisor: Int): Boolean {
+        if (divisor == 0) return false
+        return lengthM % divisor == 0 &&
+               massKg % divisor == 0 &&
+               timeS % divisor == 0 &&
+               currentA % divisor == 0 &&
+               temperatureK % divisor == 0 &&
+               amountMol % divisor == 0 &&
+               intensityCd % divisor == 0
+    }
+
     companion object {
         val DIMENSIONLESS = DimensionVector()
 
@@ -207,7 +231,7 @@ object DimensionalAnalyzer {
                 val key = expr.name.lowercase()
                 bindings[expr.name]
                     ?: bindings[key]
-                    ?: UNIT_LOOKUP[key]
+                    ?: DEFAULT_VAR_DIMENSIONS[expr.name]
                     ?: DEFAULT_VAR_DIMENSIONS[key]
                     ?: DimensionVector.DIMENSIONLESS
             }
@@ -227,8 +251,32 @@ object DimensionalAnalyzer {
                     MathExpr.Op.MULTIPLY -> leftDim + rightDim
                     MathExpr.Op.DIVIDE -> leftDim - rightDim
                     MathExpr.Op.POWER -> {
-                        val expVal = (expr.right as? MathExpr.Number)?.value?.toIntOrNull() ?: 1
-                        leftDim * expVal
+                        val expVal = (expr.right as? MathExpr.Number)?.value?.toIntOrNull()
+                            ?: (expr.right as? MathExpr.Unary)?.let { u ->
+                                if (u.negative && u.value is MathExpr.Number) -(u.value.value.toIntOrNull() ?: 1) else null
+                            }
+                        if (expVal != null) {
+                            leftDim * expVal
+                        } else if (expr.right is MathExpr.Binary && expr.right.op == MathExpr.Op.DIVIDE) {
+                            val num = (expr.right.left as? MathExpr.Number)?.value?.toIntOrNull() ?: 1
+                            val den = (expr.right.right as? MathExpr.Number)?.value?.toIntOrNull() ?: 1
+                            if (den == 2) {
+                                if (!leftDim.isDivisibleBy(2)) {
+                                    warnings.add(
+                                        DimensionalMismatchWarning(
+                                            "Square root requires even dimension exponents, got ${leftDim.toCompactUnitString()}",
+                                            leftDim,
+                                            leftDim * 2
+                                        )
+                                    )
+                                }
+                                (leftDim * num) / 2
+                            } else {
+                                leftDim
+                            }
+                        } else {
+                            leftDim
+                        }
                     }
                     MathExpr.Op.PARALLEL -> {
                         if (leftDim != rightDim && !leftDim.isDimensionless && !rightDim.isDimensionless) {
@@ -260,7 +308,18 @@ object DimensionalAnalyzer {
                     MathExpr.Function.IM,
                     MathExpr.Function.CONJUGATE,
                     MathExpr.Function.TRANSPOSE -> argDim
-                    MathExpr.Function.SQRT -> argDim * 1 // square root preserves physical unit scale
+                    MathExpr.Function.SQRT -> {
+                        if (!argDim.isDivisibleBy(2)) {
+                            warnings.add(
+                                DimensionalMismatchWarning(
+                                    "Square root requires even dimension exponents, got ${argDim.toCompactUnitString()}",
+                                    argDim,
+                                    argDim * 2
+                                )
+                            )
+                        }
+                        argDim / 2
+                    }
                     else -> {
                         if (!argDim.isDimensionless) {
                             warnings.add(
@@ -284,6 +343,7 @@ object DimensionalAnalyzer {
             is MathExpr.LaplaceTransform -> inferDimension(expr.expr, bindings, warnings) + DimensionVector.SECOND
             is MathExpr.InverseLaplaceTransform -> inferDimension(expr.expr, bindings, warnings) - DimensionVector.SECOND
             is MathExpr.ZTransform -> inferDimension(expr.expr, bindings, warnings)
+            is MathExpr.InverseZTransform -> inferDimension(expr.expr, bindings, warnings)
             is MathExpr.Gradient -> inferDimension(expr.scalarField, bindings, warnings) - DimensionVector.METER
             is MathExpr.Divergence -> inferDimension(expr.vectorField, bindings, warnings) - DimensionVector.METER
             is MathExpr.Curl -> inferDimension(expr.vectorField, bindings, warnings) - DimensionVector.METER

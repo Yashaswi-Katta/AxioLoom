@@ -12,8 +12,8 @@ android {
         applicationId = "com.axioloom.app"
         minSdk = 28
         targetSdk = 34
-        versionCode = 3
-        versionName = "2.1.3"
+        versionCode = 4
+        versionName = "2.1.4"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")

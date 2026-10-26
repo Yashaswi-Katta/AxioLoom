@@ -1,6 +1,7 @@
 package com.axioloom.app.domain.cas
 
 import com.axioloom.app.domain.model.*
+import java.util.Locale
 
 /**
  * A pedagogical breakdown step showing one stage in solving a mathematical problem.
@@ -31,12 +32,12 @@ object StepDerivationEngine {
 
         // Step 1: Initial Problem
         val initialLatex = block.recognizedLatex ?: when (intent) {
-            is MathIntent.EvaluationQuery -> SymjaCompiler.expression(intent.expression).command
-            is MathIntent.Assignment -> "${intent.variableName} = ${SymjaCompiler.expression(intent.rhs).command}"
-            is MathIntent.FunctionDef -> "${intent.funcName}(${intent.params.joinToString()}) = ${SymjaCompiler.expression(intent.body).command}"
-            is MathIntent.EquationSolve -> "${SymjaCompiler.expression(intent.lhs).command} = ${SymjaCompiler.expression(intent.rhs).command}"
-            is MathIntent.SystemOfEq -> intent.equations.joinToString(" \\\\ ") { "${SymjaCompiler.expression(it.lhs).command} = ${SymjaCompiler.expression(it.rhs).command}" }
-            is MathIntent.OdeSolve -> "${SymjaCompiler.expression(intent.lhs).command} = ${SymjaCompiler.expression(intent.rhs).command}"
+            is MathIntent.EvaluationQuery -> SymjaCompiler.decode(SymjaCompiler.expression(intent.expression).command)
+            is MathIntent.Assignment -> "${intent.variableName} = ${SymjaCompiler.decode(SymjaCompiler.expression(intent.rhs).command)}"
+            is MathIntent.FunctionDef -> "${intent.funcName}(${intent.params.joinToString()}) = ${SymjaCompiler.decode(SymjaCompiler.expression(intent.body).command)}"
+            is MathIntent.EquationSolve -> "${SymjaCompiler.decode(SymjaCompiler.expression(intent.lhs).command)} = ${SymjaCompiler.decode(SymjaCompiler.expression(intent.rhs).command)}"
+            is MathIntent.SystemOfEq -> intent.equations.joinToString(" \\\\ ") { "${SymjaCompiler.decode(SymjaCompiler.expression(it.lhs).command)} = ${SymjaCompiler.decode(SymjaCompiler.expression(it.rhs).command)}" }
+            is MathIntent.OdeSolve -> "${SymjaCompiler.decode(SymjaCompiler.expression(intent.lhs).command)} = ${SymjaCompiler.decode(SymjaCompiler.expression(intent.rhs).command)}"
         }
         steps.add(DerivationStep("Initial Problem", initialLatex))
 
@@ -46,7 +47,7 @@ object StepDerivationEngine {
         if (boundSubstitutions.isNotEmpty()) {
             val subText = boundSubstitutions.joinToString(", ") { key ->
                 val boundVal = bindings.values[key.name]
-                "${key.name} = ${boundVal?.let { SymjaCompiler.expression(it).command } ?: "?"}"
+                "${key.name} = ${boundVal?.let { SymjaCompiler.decode(SymjaCompiler.expression(it).command) } ?: "?"}"
             }
             try {
                 val compiledSub = SymjaCompiler.compile(intent, bindings)
@@ -72,6 +73,38 @@ object StepDerivationEngine {
                 deriveExpressionIntermediates(intent.body, bindings, cas, steps)
             }
             else -> Unit
+        }
+
+        // MVT / Calculus Theorems for single-variable functions
+        val funcToCheck = when (intent) {
+            is MathIntent.FunctionDef -> if (intent.params.size == 1) intent.funcName to intent.params[0] to intent.body else null
+            is MathIntent.EvaluationQuery -> {
+                if (intent.expression is MathExpr.Call && intent.expression.arguments.size == 1) {
+                    val fnName = intent.expression.function
+                    bindings.functions[fnName]?.let { fnDef ->
+                        if (fnDef.params.size == 1) fnName to fnDef.params[0] to fnDef.body else null
+                    }
+                } else null
+            }
+            else -> null
+        }
+        if (funcToCheck != null) {
+            try {
+                val varName = funcToCheck.first.second
+                val bodyExpr = funcToCheck.second
+                val bodyCompiled = SymjaCompiler.expression(bodyExpr, bindings)
+                val aBound = (bindings.values["a"] as? MathExpr.Number)?.value?.toDoubleOrNull() ?: 2.0
+                val lagrange = CalculusTheoremAnalyzer(cas).verifyLagrange(bodyCompiled.command, varName, 0.0, aBound)
+                if (lagrange.isValid && lagrange.rootsC.isNotEmpty()) {
+                    val rootsStr = lagrange.rootsC.joinToString(", ") { String.format(Locale.US, "%.4f", it) }
+                    steps.add(DerivationStep("Lagrange Mean Value Theorem [0, $aBound]", "f'($rootsStr) = ${lagrange.secantSlopeLatex}"))
+                }
+                val rolles = CalculusTheoremAnalyzer(cas).verifyRolles(bodyCompiled.command, varName, 0.0, aBound)
+                if (rolles.isValid && rolles.rootsC.isNotEmpty()) {
+                    val rootsStr = rolles.rootsC.joinToString(", ") { String.format(Locale.US, "%.4f", it) }
+                    steps.add(DerivationStep("Rolle's Theorem [0, $aBound]", "f'($rootsStr) = 0"))
+                }
+            } catch (_: Exception) {}
         }
 
         // Step 4: Exact Symbolic Result
@@ -112,6 +145,29 @@ object StepDerivationEngine {
         cas: OfflineCasEngine,
         steps: MutableList<DerivationStep>
     ) {
+        // Matrix Analysis if expression represents or operates on a matrix
+        val targetMatrix: MathExpr.Matrix? = when (expr) {
+            is MathExpr.Matrix -> expr
+            is MathExpr.Symbol -> bindings.values[expr.name] as? MathExpr.Matrix
+            is MathExpr.Builtin -> {
+                val arg = expr.arguments.firstOrNull()
+                when (arg) {
+                    is MathExpr.Matrix -> arg
+                    is MathExpr.Symbol -> bindings.values[arg.name] as? MathExpr.Matrix
+                    else -> null
+                }
+            }
+            else -> null
+        }
+        if (targetMatrix != null) {
+            try {
+                val matrixAnalysis = MatrixAnalyzer(cas).analyzeMatrix(targetMatrix, bindings)
+                matrixAnalysis.stepsLatex.forEach { stepText ->
+                    steps.add(DerivationStep("Matrix Spectral Decomposition", stepText))
+                }
+            } catch (_: Exception) {}
+        }
+
         when (expr) {
             is MathExpr.Integral -> {
                 if (expr.lower != null && expr.upper != null) {
@@ -172,10 +228,10 @@ object StepDerivationEngine {
         steps: MutableList<DerivationStep>
     ) {
         try {
-            val lhsCmd = SymjaCompiler.expression(intent.lhs, bindings).command
-            val rhsCmd = SymjaCompiler.expression(intent.rhs, bindings).command
-            val factorCmd = "Factor(($lhsCmd) - ($rhsCmd))"
-            val factoredLatex = cas.evalCommandToLatex(factorCmd)
+            val lhsCompiled = SymjaCompiler.expression(intent.lhs, bindings)
+            val rhsCompiled = SymjaCompiler.expression(intent.rhs, bindings)
+            val factorCmd = "Factor((${lhsCompiled.command}) - (${rhsCompiled.command}))"
+            val factoredLatex = cas.evalCommandToLatex(factorCmd, lhsCompiled.latexAliases + rhsCompiled.latexAliases)
             if (factoredLatex.isNotBlank()) {
                 steps.add(DerivationStep("Standard / Factored Form", "$factoredLatex = 0"))
             }

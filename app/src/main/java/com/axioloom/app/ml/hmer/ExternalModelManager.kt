@@ -23,12 +23,22 @@ data class ExternalModelStatus(
 class ExternalModelManager(private val context: Context) {
 
     private val customDir = File(context.filesDir, "custom_hmer").apply { mkdirs() }
-    private val customModelFile = File(customDir, "custom_hmer.onnx")
-    private val customVocabFile = File(customDir, "custom_vocab.txt")
+    val customModelFile = File(customDir, "custom_hmer.onnx")
+    val customEncoderFile = File(customDir, "custom_encoder.onnx")
+    val customDecoderFile = File(customDir, "custom_decoder.onnx")
+    val customVocabFile = File(customDir, "custom_vocab.txt")
 
     fun hasCustomModel(): Boolean {
-        return customModelFile.exists() && customModelFile.length() > 0 &&
-               customVocabFile.exists() && customVocabFile.length() > 0
+        val hasVocab = customVocabFile.exists() && customVocabFile.length() > 0
+        val hasSingle = customModelFile.exists() && customModelFile.length() > 0
+        val hasEncDec = customEncoderFile.exists() && customEncoderFile.length() > 0 &&
+                        customDecoderFile.exists() && customDecoderFile.length() > 0
+        return hasVocab && (hasSingle || hasEncDec)
+    }
+
+    fun isEncoderDecoder(): Boolean {
+        return customEncoderFile.exists() && customEncoderFile.length() > 0 &&
+               customDecoderFile.exists() && customDecoderFile.length() > 0
     }
 
     fun getStatus(): ExternalModelStatus {
@@ -37,17 +47,20 @@ class ExternalModelManager(private val context: Context) {
             runCatching { customVocabFile.readLines().size }.getOrDefault(0)
         } else 0
 
+        val modelPath = when {
+            isEncoderDecoder() -> "${customEncoderFile.name} + ${customDecoderFile.name}"
+            customModelFile.exists() -> customModelFile.absolutePath
+            else -> null
+        }
+
         return ExternalModelStatus(
             hasCustomModel = hasCustom,
             activeSource = if (hasCustom) ActiveModelSource.CUSTOM else ActiveModelSource.BUNDLED,
-            customModelPath = if (hasCustom) customModelFile.absolutePath else null,
+            customModelPath = modelPath,
             customVocabCount = vocabCount
         )
     }
 
-    /**
-     * Imports a custom ONNX model and vocabulary stream, validating their integrity.
-     */
     fun importCustomModel(modelInput: InputStream, vocabInput: InputStream): Result<ExternalModelStatus> {
         return runCatching {
             val tempModel = File(customDir, "temp_model.onnx")
@@ -56,15 +69,13 @@ class ExternalModelManager(private val context: Context) {
             tempModel.outputStream().use { out -> modelInput.copyTo(out) }
             tempVocab.outputStream().use { out -> vocabInput.copyTo(out) }
 
-            // Validate non-empty model (> 1 KB)
             require(tempModel.length() > 1024) { "Custom ONNX model file is suspiciously small or empty" }
-
-            // Validate vocabulary has meaningful lines (> 10 tokens)
             val lines = tempVocab.readLines().filter { it.isNotBlank() }
             require(lines.size >= 10) { "Vocabulary must contain at least 10 tokens, found ${lines.size}" }
 
-            // Atomic rename
             if (customModelFile.exists()) customModelFile.delete()
+            if (customEncoderFile.exists()) customEncoderFile.delete()
+            if (customDecoderFile.exists()) customDecoderFile.delete()
             if (customVocabFile.exists()) customVocabFile.delete()
 
             check(tempModel.renameTo(customModelFile)) { "Failed to commit custom ONNX model file" }
@@ -74,13 +85,46 @@ class ExternalModelManager(private val context: Context) {
         }
     }
 
-    fun getCustomModelFile(): File? = if (hasCustomModel()) customModelFile else null
+    fun importCustomEncoderDecoder(
+        encoderInput: InputStream,
+        decoderInput: InputStream,
+        vocabInput: InputStream
+    ): Result<ExternalModelStatus> {
+        return runCatching {
+            val tempEnc = File(customDir, "temp_enc.onnx")
+            val tempDec = File(customDir, "temp_dec.onnx")
+            val tempVocab = File(customDir, "temp_vocab.txt")
 
-    fun getCustomVocabFile(): File? = if (hasCustomModel()) customVocabFile else null
+            tempEnc.outputStream().use { out -> encoderInput.copyTo(out) }
+            tempDec.outputStream().use { out -> decoderInput.copyTo(out) }
+            tempVocab.outputStream().use { out -> vocabInput.copyTo(out) }
+
+            require(tempEnc.length() > 1024 && tempDec.length() > 1024) { "Encoder/Decoder ONNX files are suspiciously small" }
+            val lines = tempVocab.readLines().filter { it.isNotBlank() }
+            require(lines.size >= 10) { "Vocabulary must contain at least 10 tokens, found ${lines.size}" }
+
+            if (customModelFile.exists()) customModelFile.delete()
+            if (customEncoderFile.exists()) customEncoderFile.delete()
+            if (customDecoderFile.exists()) customDecoderFile.delete()
+            if (customVocabFile.exists()) customVocabFile.delete()
+
+            check(tempEnc.renameTo(customEncoderFile)) { "Failed to commit custom encoder file" }
+            check(tempDec.renameTo(customDecoderFile)) { "Failed to commit custom decoder file" }
+            check(tempVocab.renameTo(customVocabFile)) { "Failed to commit custom vocabulary file" }
+
+            getStatus()
+        }
+    }
+
+    fun getValidCustomModelFile(): File? = if (customModelFile.exists() && customModelFile.length() > 0) customModelFile else null
+
+    fun getValidCustomVocabFile(): File? = if (customVocabFile.exists() && customVocabFile.length() > 0) customVocabFile else null
 
     fun clearCustomModel(): Boolean {
         var success = true
         if (customModelFile.exists()) success = success && customModelFile.delete()
+        if (customEncoderFile.exists()) success = success && customEncoderFile.delete()
+        if (customDecoderFile.exists()) success = success && customDecoderFile.delete()
         if (customVocabFile.exists()) success = success && customVocabFile.delete()
         return success
     }

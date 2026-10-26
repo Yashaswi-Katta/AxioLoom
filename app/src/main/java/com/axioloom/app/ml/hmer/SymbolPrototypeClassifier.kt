@@ -241,11 +241,16 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             val s2Vert = h2 > w2 * 1.25f
             val s2Horiz = w2 > h2 * 1.25f
 
+            val bVert = if (s1Vert) b1 else b2
+            val bHoriz = if (s1Vert) b2 else b1
             if ((s1Vert && s2Horiz) || (s1Horiz && s2Vert)) {
                 val centerDistX = abs(b1.center.x - b2.center.x)
                 val centerDistY = abs(b1.center.y - b2.center.y)
                 val maxDim = max(max(w1, h1), max(w2, h2))
                 if (centerDistX <= maxDim * 0.45f && centerDistY <= maxDim * 0.45f || anySegmentsIntersect(s1, s2)) {
+                    if (bHoriz.center.y < bVert.top + bVert.height * 0.42f) {
+                        return ClassificationMatch("t", "t", 0.005f)
+                    }
                     return ClassificationMatch("+", "+", 0.001f)
                 }
             }
@@ -262,14 +267,22 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
                 }
             }
 
-            // 3. Multiplication Cross (\times): two crossing diagonal strokes
+            // 3. Multiplication Cross (\times) vs Variable 'x': two crossing diagonal strokes
             if (anySegmentsIntersect(s1, s2)) {
                 val dx1 = s1.last().x - s1.first().x; val dy1 = s1.last().y - s1.first().y
                 val dx2 = s2.last().x - s2.first().x; val dy2 = s2.last().y - s2.first().y
                 val slope1 = dy1 / (abs(dx1) + 1e-4f)
                 val slope2 = dy2 / (abs(dx2) + 1e-4f)
                 if ((slope1 > 0.15f && slope2 < -0.15f) || (slope1 < -0.15f && slope2 > 0.15f)) {
-                    return ClassificationMatch("\\times", "\\times", 0.01f)
+                    val b1 = boundsOf(s1); val b2 = boundsOf(s2)
+                    val totalW = max(b1.right, b2.right) - min(b1.left, b2.left)
+                    val totalH = max(b1.bottom, b2.bottom) - min(b1.top, b2.top)
+                    val aspect = totalH / (totalW + 1e-4f)
+                    return if (aspect >= 0.9f) {
+                        ClassificationMatch("x", "x", 0.01f)
+                    } else {
+                        ClassificationMatch("\\times", "\\times", 0.015f)
+                    }
                 }
             }
         } else if (count == 1) {
@@ -364,8 +377,48 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
         val validStrokes = strokePolylines.filter { it.isNotEmpty() }
         if (validStrokes.isEmpty()) return emptyList()
 
+        // Prioritize custom prototypes if DTW distance < 0.12f
+        val customProtos = prototypes.filter { it.isCustom && it.strokeCount == validStrokes.size }
+        if (customProtos.isNotEmpty()) {
+            val strokeCount = validStrokes.size
+            val variations = mutableListOf<List<List<Offset>>>()
+            variations.add(validStrokes)
+            if (strokeCount == 2) {
+                val s0 = validStrokes[0]; val s1 = validStrokes[1]
+                variations.add(listOf(s1, s0))
+                variations.add(listOf(s0.reversed(), s1))
+                variations.add(listOf(s0, s1.reversed()))
+                variations.add(listOf(s0.reversed(), s1.reversed()))
+            } else if (strokeCount == 1) {
+                variations.add(listOf(validStrokes[0].reversed()))
+            }
+            val processedVariations = variations.map { processStrokes(it) }
+            val customMatches = mutableListOf<ClassificationMatch>()
+            for (proto in customProtos) {
+                var bestScore = Float.POSITIVE_INFINITY
+                for (cand in processedVariations) {
+                    val dist = dtwDistance(cand, proto.points)
+                    if (dist < bestScore) bestScore = dist
+                }
+                customMatches.add(ClassificationMatch(proto.label, proto.latex, bestScore))
+            }
+            val bestCustom = customMatches.minByOrNull { it.score }
+            if (bestCustom != null && bestCustom.score < 0.12f) {
+                return customMatches.sortedBy { it.score }
+            }
+        }
+
         val ruleMatch = classifyByGeometry(validStrokes)
         if (ruleMatch != null) {
+            if (ruleMatch.label == "x") {
+                return listOf(ruleMatch, ClassificationMatch("\\times", "\\times", 0.015f))
+            } else if (ruleMatch.label == "\\times") {
+                return listOf(ruleMatch, ClassificationMatch("x", "x", 0.02f))
+            } else if (ruleMatch.label == "t") {
+                return listOf(ruleMatch, ClassificationMatch("+", "+", 0.02f))
+            } else if (ruleMatch.label == "+") {
+                return listOf(ruleMatch, ClassificationMatch("t", "t", 0.02f))
+            }
             return listOf(ruleMatch)
         }
 
@@ -422,6 +475,46 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
     fun recognizeExpression(timedStrokes: List<TimedStroke>): ExpressionRecognitionResult? {
         if (timedStrokes.isEmpty()) return null
 
+        // Detect horizontal fraction bars
+        if (timedStrokes.size >= 3) {
+            val potentialBar = timedStrokes.firstOrNull { stroke ->
+                val b = stroke.bounds
+                val pts = stroke.points.map { it.offset }
+                val dx = abs(pts.last().x - pts.first().x)
+                val dy = abs(pts.last().y - pts.first().y)
+                b.width >= 24f && b.width / max(b.height, 1f) >= 2.5f && dy < dx * 0.35f
+            }
+            if (potentialBar != null) {
+                val barBounds = potentialBar.bounds
+                val barCenterY = barBounds.center.y
+                val otherStrokes = timedStrokes.filter { it != potentialBar }
+
+                val numStrokes = otherStrokes.filter {
+                    it.bounds.bottom <= barCenterY + 4f &&
+                    it.bounds.right >= barBounds.left - 10f &&
+                    it.bounds.left <= barBounds.right + 10f
+                }
+                val denStrokes = otherStrokes.filter {
+                    it.bounds.top >= barCenterY - 4f &&
+                    it.bounds.right >= barBounds.left - 10f &&
+                    it.bounds.left <= barBounds.right + 10f
+                }
+
+                if (numStrokes.isNotEmpty() && denStrokes.isNotEmpty() &&
+                    (numStrokes.size + denStrokes.size + 1 == timedStrokes.size)) {
+                    val numRec = recognizeExpression(numStrokes)
+                    val denRec = recognizeExpression(denStrokes)
+                    if (numRec != null && denRec != null) {
+                        val fracLatex = "\\frac{${numRec.latex}}{${denRec.latex}}"
+                        val alts = mutableListOf<String>()
+                        alts.addAll(numRec.alternatives)
+                        alts.addAll(denRec.alternatives)
+                        return ExpressionRecognitionResult(fracLatex, alts.distinct().take(4))
+                    }
+                }
+            }
+        }
+
         val clusters = clusterStrokesHorizontally(timedStrokes)
         if (clusters.isEmpty()) return null
 
@@ -456,45 +549,75 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
 
         if (tokens.isEmpty()) return null
 
-        // Assemble LaTeX tokens with numbers, operators, and superscripts
-        val sb = StringBuilder()
-        var i = 0
-        while (i < tokens.size) {
-            val cur = tokens[i]
-            val isDigit = cur.latex.all { it in '0'..'9' }
+        fun formatTokens(tokenList: List<RecognizedToken>): String {
+            val sb = StringBuilder()
+            var idx = 0
+            while (idx < tokenList.size) {
+                val cur = tokenList[idx]
+                val isDigit = cur.latex.all { it in '0'..'9' }
 
-            if (i > 0) {
-                val prev = tokens[i - 1]
-                val prevIsDigit = prev.latex.all { it in '0'..'9' }
-
-                // Check for superscript (elevated and smaller)
-                val isElevated = cur.bounds.center.y < prev.bounds.top + prev.bounds.height * 0.40f &&
-                        cur.bounds.left >= prev.bounds.right - prev.bounds.width * 0.25f
-
-                if (isElevated) {
-                    sb.append("^{").append(cur.latex).append("}")
-                    i++
-                    continue
+                if (cur.latex == "\\sqrt") {
+                    if (idx > 0) sb.append(" ")
+                    if (idx + 1 < tokenList.size) {
+                        val next = tokenList[idx + 1]
+                        sb.append("\\sqrt{").append(next.latex).append("}")
+                        idx += 2
+                        continue
+                    } else {
+                        sb.append("\\sqrt{}")
+                        idx++
+                        continue
+                    }
                 }
 
-                // If both are digits and tightly spaced, concatenate without space
-                val tightGap = cur.bounds.left - prev.bounds.right
-                if (isDigit && prevIsDigit && tightGap <= prev.bounds.height * 0.65f) {
-                    sb.append(cur.latex)
-                    i++
-                    continue
+                if (idx > 0) {
+                    val prev = tokenList[idx - 1]
+                    val prevIsDigit = prev.latex.all { it in '0'..'9' }
+
+                    // Check for superscript (elevated and smaller)
+                    val isElevated = cur.bounds.center.y < prev.bounds.top + prev.bounds.height * 0.40f &&
+                            cur.bounds.left >= prev.bounds.right - prev.bounds.width * 0.25f
+
+                    if (isElevated) {
+                        sb.append("^{").append(cur.latex).append("}")
+                        idx++
+                        continue
+                    }
+
+                    // If both are digits and tightly spaced, concatenate without space
+                    val tightGap = cur.bounds.left - prev.bounds.right
+                    if (isDigit && prevIsDigit && tightGap <= prev.bounds.height * 0.65f) {
+                        sb.append(cur.latex)
+                        idx++
+                        continue
+                    }
+
+                    sb.append(" ")
                 }
 
-                // Standard space delimiter
-                sb.append(" ")
+                sb.append(cur.latex)
+                idx++
             }
-
-            sb.append(cur.latex)
-            i++
+            return sb.toString().trim()
         }
 
-        val latex = sb.toString().trim()
-        return ExpressionRecognitionResult(latex, allAlternatives)
+        val latex = formatTokens(tokens)
+        val fullAlternatives = mutableListOf<String>()
+
+        for (tokenIdx in tokens.indices) {
+            val token = tokens[tokenIdx]
+            for (alt in token.alternatives) {
+                val altTokenList = tokens.mapIndexed { j, tok ->
+                    if (j == tokenIdx) tok.copy(latex = alt) else tok
+                }
+                val candidateStr = formatTokens(altTokenList)
+                if (candidateStr != latex && candidateStr !in fullAlternatives) {
+                    fullAlternatives.add(candidateStr)
+                }
+            }
+        }
+
+        return ExpressionRecognitionResult(latex, fullAlternatives.take(4))
     }
 
     private fun clusterStrokesHorizontally(strokes: List<TimedStroke>): List<List<TimedStroke>> {

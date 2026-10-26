@@ -38,8 +38,8 @@ fun DiscreteStemPlotCard(
     initialH: List<Double> = listOf(1.0, 1.0),
     onClose: () -> Unit = {}
 ) {
-    var xInputText by remember { mutableStateOf(initialX.joinToString(", ")) }
-    var hInputText by remember { mutableStateOf(initialH.joinToString(", ")) }
+    var xInputText by remember(initialX) { mutableStateOf(initialX.joinToString(", ")) }
+    var hInputText by remember(initialH) { mutableStateOf(initialH.joinToString(", ")) }
 
     val xSequence = remember(xInputText) {
         xInputText.split(",")

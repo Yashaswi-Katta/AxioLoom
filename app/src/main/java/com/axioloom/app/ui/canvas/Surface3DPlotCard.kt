@@ -155,6 +155,7 @@ fun Surface3DPlotCard(
     modifier: Modifier = Modifier,
     expr: MathExpr,
     functionName: String = "z = f(x, y)",
+    boundValues: Map<String, Double> = emptyMap(),
     onClose: () -> Unit = {}
 ) {
     var yaw by remember { mutableStateOf(-45f) }
@@ -162,8 +163,8 @@ fun Surface3DPlotCard(
     var zoomScale by remember { mutableStateOf(16f) }
     var wireframeOnly by remember { mutableStateOf(false) }
 
-    val surfaceData = remember(expr) {
-        FastPlotEvaluator.sampleSurface(expr, steps = 36)
+    val surfaceData = remember(expr, boundValues) {
+        FastPlotEvaluator.sampleSurface(expr, steps = 36, bindings = boundValues)
     }
 
     Card(
@@ -295,7 +296,7 @@ fun Surface3DPlotCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Yaw: ${yaw.roundToInt()}°  Pitch: ${pitch.roundToInt()}°  z ∈ [${"%.1f".format(surfaceData.zMin)}, ${"%.1f".format(surfaceData.zMax)}]",
+                    text = "Yaw: ${yaw.roundToInt()}°  Pitch: ${pitch.roundToInt()}°  z ∈ [${String.format(java.util.Locale.US, "%.1f", surfaceData.zMin)}, ${String.format(java.util.Locale.US, "%.1f", surfaceData.zMax)}]",
                     color = Color(0xFFADB5BD),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace

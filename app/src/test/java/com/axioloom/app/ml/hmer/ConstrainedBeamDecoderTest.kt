@@ -38,6 +38,21 @@ class ConstrainedBeamDecoderTest {
     @Test
     fun closingBraceIsAllowedWhenBraceDepthIsPositive() {
         val openBraceId = vocabulary.idFor("{")!!
+        val xId = vocabulary.idFor("x")!!
+        val hypWithOpenBrace = BeamHypothesis(
+            tokens = listOf(vocabulary.startId, openBraceId, xId),
+            logProb = 0.0,
+            braceDepth = 1
+        )
+
+        val mask = decoder.computeSyntaxMask(hypWithOpenBrace, stepIndex = 2, maxSequenceLength = 64)
+        val closeBraceId = vocabulary.idFor("}")!!
+        assertFalse("Closing brace '}' must be allowed when braceDepth > 0 and group is non-empty", mask[closeBraceId])
+    }
+
+    @Test
+    fun emptyBracesAreMaskedImmediatelyAfterOpenBrace() {
+        val openBraceId = vocabulary.idFor("{")!!
         val hypWithOpenBrace = BeamHypothesis(
             tokens = listOf(vocabulary.startId, openBraceId),
             logProb = 0.0,
@@ -46,7 +61,7 @@ class ConstrainedBeamDecoderTest {
 
         val mask = decoder.computeSyntaxMask(hypWithOpenBrace, stepIndex = 1, maxSequenceLength = 64)
         val closeBraceId = vocabulary.idFor("}")!!
-        assertFalse("Closing brace '}' must be allowed when braceDepth > 0", mask[closeBraceId])
+        assertTrue("Closing brace '}' must be masked immediately after '{' to prevent empty groups", mask[closeBraceId])
     }
 
     @Test

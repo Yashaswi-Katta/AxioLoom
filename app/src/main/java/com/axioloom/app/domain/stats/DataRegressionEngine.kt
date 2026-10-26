@@ -82,7 +82,7 @@ object DataRegressionEngine {
         val rmse = sqrt(sse / n)
 
         val sign = if (intercept >= 0.0) "+" else "-"
-        val eq = "y = ${"%.4f".format(slope)} x $sign ${"%.4f".format(abs(intercept))}"
+        val eq = "y = ${String.format(java.util.Locale.US, "%.4f", slope)} x $sign ${String.format(java.util.Locale.US, "%.4f", abs(intercept))}"
 
         return LinearRegressionResult(
             slope = slope,
@@ -148,7 +148,7 @@ object DataRegressionEngine {
         for (k in degree downTo 0) {
             val c = coeffs[k]
             if (abs(c) > 1e-6 || k == 0) {
-                val cStr = "%.4f".format(c)
+                val cStr = String.format(java.util.Locale.US, "%.4f", c)
                 when (k) {
                     0 -> terms.add(cStr)
                     1 -> terms.add("$cStr x")
@@ -192,7 +192,7 @@ object DataRegressionEngine {
         val rmse = sqrt(sse / validPoints.size)
         val r2 = if (sst > 1e-12) (1.0 - sse / sst).coerceIn(0.0, 1.0) else 1.0
 
-        val eq = "y = ${"%.4f".format(a)} e^{${"%.4f".format(b)} x}"
+        val eq = "y = ${String.format(java.util.Locale.US, "%.4f", a)} e^{${String.format(java.util.Locale.US, "%.4f", b)} x}"
 
         return ExponentialRegressionResult(
             a = a,

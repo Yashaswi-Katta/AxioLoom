@@ -77,7 +77,7 @@ object MarkdownExporter {
         for (block in sortedBlocks) {
             val intent = block.intent
             val result = graph.blocks[block.id]?.result ?: block.result
-            val resStr = result?.expression ?: "-"
+            val resStr = result?.expression?.let { com.axioloom.app.domain.model.SymjaCompiler.decode(it) } ?: "-"
             when (intent) {
                 is MathIntent.Assignment -> {
                     definedSymbols.add(Triple(intent.variableName, intent.rhsExpression, resStr))
@@ -115,7 +115,7 @@ object MarkdownExporter {
                 sb.appendLine(latex)
                 sb.appendLine("$$")
                 if (result != null) {
-                    val resultText = if (result.latex.isNotBlank()) result.latex else result.expression
+                    val resultText = if (result.latex.isNotBlank()) result.latex else com.axioloom.app.domain.model.SymjaCompiler.decode(result.expression)
                     sb.appendLine("$\\implies $resultText$")
                 }
                 sb.appendLine()

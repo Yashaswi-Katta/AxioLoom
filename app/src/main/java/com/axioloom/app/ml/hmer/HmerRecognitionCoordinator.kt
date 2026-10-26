@@ -43,10 +43,19 @@ class HmerRecognitionCoordinator(
     private val prototypeClassifier: SymbolPrototypeClassifier? = null,
     private val onResult: (BlockRevision, BlockRecognitionOutcome) -> Unit
 ) : AutoCloseable {
+    var onTiming: ((rasterMs: Double, inferenceMs: Double) -> Unit)? = null
     private val monitor = Any()
     private val jobs = mutableMapOf<UUID, Job>()
     private val latestTickets = mutableMapOf<UUID, BlockRevision>()
     private var closed = false
+
+    fun registerTicket(ticket: BlockRevision) {
+        synchronized(monitor) {
+            if (!closed) {
+                latestTickets[ticket.blockId] = ticket
+            }
+        }
+    }
 
     init { require(debounceMillis >= 0L) }
 
@@ -59,8 +68,16 @@ class HmerRecognitionCoordinator(
             jobs[block.id] = scope.launch(Dispatchers.Default) {
                 delay(debounceMillis)
                 val outcome = try {
+                    val t0 = System.nanoTime()
                     val raster = rasterizer.rasterize(block.strokes)
-                    when (val inference = engine.recognize(raster)) {
+                    val rasterMs = (System.nanoTime() - t0) / 1_000_000.0
+
+                    val t1 = System.nanoTime()
+                    val inference = engine.recognize(raster)
+                    val inferenceMs = (System.nanoTime() - t1) / 1_000_000.0
+                    onTiming?.invoke(rasterMs, inferenceMs)
+
+                    when (inference) {
                         is HmerInferenceResult.Recognized -> {
                             if (inference.latex.isBlank()) {
                                 val fallback = prototypeClassifier?.recognizeExpression(block.strokes)
@@ -141,9 +158,11 @@ class HmerRecognitionCoordinator(
         require(value.length <= MAX_MANUAL_LATEX_LENGTH) { "Manual LaTeX is too long" }
         require(value.none { it == '\u0000' }) { "Manual LaTeX contains a NUL character" }
         val accepted = synchronized(monitor) {
-            if (closed || latestTickets[ticket.blockId] != ticket) {
+            val currentTicket = latestTickets[ticket.blockId]
+            if (closed || (currentTicket != null && currentTicket != ticket)) {
                 false
             } else {
+                latestTickets[ticket.blockId] = ticket
                 jobs.remove(ticket.blockId)?.cancel()
                 true
             }

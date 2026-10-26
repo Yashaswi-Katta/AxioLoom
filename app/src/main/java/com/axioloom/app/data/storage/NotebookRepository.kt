@@ -172,6 +172,17 @@ class NotebookRepository(private val context: Context) {
                 candidateArray.put(c)
             }
             blockObj.put("candidateSolveVars", candidateArray)
+
+            if (block.resultAnchorPoint != null) {
+                blockObj.put("resultAnchorX", block.resultAnchorPoint.x.toDouble())
+                blockObj.put("resultAnchorY", block.resultAnchorPoint.y.toDouble())
+            }
+            val altsArray = JSONArray()
+            for (alt in block.alternatives) {
+                altsArray.put(alt)
+            }
+            blockObj.put("alternatives", altsArray)
+
             blocksArray.put(blockObj)
         }
         root.put("blocks", blocksArray)
@@ -240,8 +251,17 @@ class NotebookRepository(private val context: Context) {
                 strokesById[strokeId] = timed
             }
 
-            val reconstructedBlocks = mutableListOf<EquationBlock>()
             val blocksArray = root.optJSONArray("blocks") ?: JSONArray()
+            val definedInWorkspace = mutableSetOf<String>()
+            val assignRegex = Regex("""^([a-zA-Z_][a-zA-Z0-9_]*)\s*=""")
+            val funcRegex = Regex("""^([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*=""")
+            for (k in 0 until blocksArray.length()) {
+                val bObj = blocksArray.getJSONObject(k)
+                val latex = bObj.optString("recognizedLatex", "").trim()
+                assignRegex.find(latex)?.let { definedInWorkspace.add(it.groupValues[1]) }
+                funcRegex.find(latex)?.let { definedInWorkspace.add(it.groupValues[1]) }
+            }
+            val reconstructedBlocks = mutableListOf<EquationBlock>()
 
             for (i in 0 until blocksArray.length()) {
                 val blockObj = blocksArray.getJSONObject(i)
@@ -274,13 +294,28 @@ class NotebookRepository(private val context: Context) {
                     }
                 }
 
+                val altsList = mutableListOf<String>()
+                val aArray = blockObj.optJSONArray("alternatives")
+                if (aArray != null) {
+                    for (k in 0 until aArray.length()) {
+                        altsList += aArray.getString(k)
+                    }
+                }
+
+                val anchorPoint = if (blockObj.has("resultAnchorX") && blockObj.has("resultAnchorY")) {
+                    androidx.compose.ui.geometry.Offset(
+                        blockObj.getDouble("resultAnchorX").toFloat(),
+                        blockObj.getDouble("resultAnchorY").toFloat()
+                    )
+                } else null
+
                 var intent = null as com.axioloom.app.domain.model.MathIntent?
                 var cleanLatex = recognizedLatex
                 var finalTarget = solveTarget
 
                 if (recognizedLatex != null) {
                     try {
-                        val bound = graph.state.value.symbolOwners.keys.map { it.name }.toSet()
+                        val bound = graph.state.value.symbolOwners.keys.map { it.name }.toSet() + definedInWorkspace
                         val transpiled = try {
                             parser.transpile(recognizedLatex, boundSymbols = bound, solveTarget = solveTarget)
                         } catch (ambiguous: AmbiguousSolveVariableException) {
@@ -302,7 +337,7 @@ class NotebookRepository(private val context: Context) {
                     strokes = blockStrokes,
                     bounds = bounds,
                     medianStrokeHeight = medianHeight.coerceAtLeast(16f),
-                    resultAnchorPoint = null,
+                    resultAnchorPoint = anchorPoint,
                     revision = revision,
                     recognizedLatex = cleanLatex,
                     intent = intent,
@@ -311,7 +346,8 @@ class NotebookRepository(private val context: Context) {
                     solveTarget = finalTarget,
                     candidateSolveVars = candidateList,
                     displayMode = displayMode,
-                    transform = transform
+                    transform = transform,
+                    alternatives = altsList
                 )
             }
 

@@ -118,14 +118,30 @@ object ImageMathPreprocessor {
         val offX = RasterDimensions.PADDING_PX + (dims.contentWidth - cropW * scale) / 2f
         val offY = RasterDimensions.PADDING_PX + (dims.contentHeight - cropH * scale) / 2f
 
-        for (cy in 0 until cropH) {
-            val srcY = minY + cy
-            for (cx in 0 until cropW) {
-                val srcX = minX + cx
-                if (denoised[srcY * w + srcX]) {
-                    val tx = (offX + cx * scale).roundToInt().coerceIn(0, tensorW - 1)
-                    val ty = (offY + cy * scale).roundToInt().coerceIn(0, tensorH - 1)
-                    tensorFloats[ty * tensorW + tx] = 1.0f
+        for (ty in 0 until tensorH) {
+            val srcYf = (ty - offY) / scale
+            if (srcYf < 0f || srcYf > (cropH - 1).toFloat()) continue
+            val y0 = srcYf.toInt().coerceIn(0, cropH - 1)
+            val y1 = (y0 + 1).coerceIn(0, cropH - 1)
+            val wy = srcYf - y0
+
+            for (tx in 0 until tensorW) {
+                val srcXf = (tx - offX) / scale
+                if (srcXf < 0f || srcXf > (cropW - 1).toFloat()) continue
+                val x0 = srcXf.toInt().coerceIn(0, cropW - 1)
+                val x1 = (x0 + 1).coerceIn(0, cropW - 1)
+                val wx = srcXf - x0
+
+                val v00 = if (denoised[(minY + y0) * w + (minX + x0)]) 1.0f else 0.0f
+                val v10 = if (denoised[(minY + y0) * w + (minX + x1)]) 1.0f else 0.0f
+                val v01 = if (denoised[(minY + y1) * w + (minX + x0)]) 1.0f else 0.0f
+                val v11 = if (denoised[(minY + y1) * w + (minX + x1)]) 1.0f else 0.0f
+
+                val top = v00 * (1f - wx) + v10 * wx
+                val bot = v01 * (1f - wx) + v11 * wx
+                val interpolated = top * (1f - wy) + bot * wy
+                if (interpolated > 0.05f) {
+                    tensorFloats[ty * tensorW + tx] = interpolated
                 }
             }
         }

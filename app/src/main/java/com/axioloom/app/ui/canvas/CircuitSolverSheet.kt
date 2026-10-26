@@ -16,6 +16,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axioloom.app.domain.circuit.MnaResult
 import com.axioloom.app.domain.circuit.SymbolicMnaSolver
+import com.axioloom.app.domain.circuit.RecognizedSchematic
+import com.axioloom.app.domain.model.MathExpr
 import com.axioloom.app.ui.AxioLoomViewModel
 import kotlinx.coroutines.launch
 
@@ -28,7 +30,9 @@ import kotlinx.coroutines.launch
 fun CircuitSolverSheet(
     solver: SymbolicMnaSolver,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    activeSchematic: RecognizedSchematic? = null,
+    externalMnaResult: MnaResult? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     var netlistText by remember {
@@ -65,9 +69,44 @@ fun CircuitSolverSheet(
         }
     }
 
+    LaunchedEffect(externalMnaResult) {
+        if (externalMnaResult != null) {
+            mnaResult = externalMnaResult
+        }
+    }
+
+    LaunchedEffect(activeSchematic) {
+        if (activeSchematic != null && activeSchematic.elements.isNotEmpty()) {
+            val lines = activeSchematic.elements.mapNotNull { el ->
+                val valStr = when (el) {
+                    is com.axioloom.app.domain.circuit.CircuitElement.Resistor -> (el.value as? MathExpr.Number)?.value ?: "1"
+                    is com.axioloom.app.domain.circuit.CircuitElement.Capacitor -> (el.value as? MathExpr.Number)?.value ?: "1u"
+                    is com.axioloom.app.domain.circuit.CircuitElement.Inductor -> (el.value as? MathExpr.Number)?.value ?: "1m"
+                    is com.axioloom.app.domain.circuit.CircuitElement.VoltageSource -> (el.voltage as? MathExpr.Number)?.value ?: "10"
+                    is com.axioloom.app.domain.circuit.CircuitElement.CurrentSource -> (el.current as? MathExpr.Number)?.value ?: "1"
+                    is com.axioloom.app.domain.circuit.CircuitElement.Vccs -> (el.transconductance as? MathExpr.Number)?.value ?: "1"
+                }
+                when (el) {
+                    is com.axioloom.app.domain.circuit.CircuitElement.Resistor -> "${el.name} ${el.nodeA} ${el.nodeB} $valStr"
+                    is com.axioloom.app.domain.circuit.CircuitElement.Capacitor -> "${el.name} ${el.nodeA} ${el.nodeB} $valStr"
+                    is com.axioloom.app.domain.circuit.CircuitElement.Inductor -> "${el.name} ${el.nodeA} ${el.nodeB} $valStr"
+                    is com.axioloom.app.domain.circuit.CircuitElement.VoltageSource -> "${el.name} ${el.nodePos} ${el.nodeNeg} $valStr"
+                    is com.axioloom.app.domain.circuit.CircuitElement.CurrentSource -> "${el.name} ${el.nodeFrom} ${el.nodeTo} $valStr"
+                    is com.axioloom.app.domain.circuit.CircuitElement.Vccs -> null
+                }
+            }
+            if (lines.isNotEmpty()) {
+                netlistText = lines.joinToString("\n")
+                runMna()
+            }
+        }
+    }
+
     // Auto-solve initial default circuit
     LaunchedEffect(Unit) {
-        runMna()
+        if (activeSchematic == null && externalMnaResult == null) {
+            runMna()
+        }
     }
 
     Surface(

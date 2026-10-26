@@ -52,10 +52,47 @@ class ScratchOutDetector {
         val hits = targets.asSequence()
             .filter { it.id != scratch.id }
             .filter { it.bounds.touchesForScratch(scratch.bounds) }
-            .filter { scratch.stroke.shape.intersects(it.stroke.shape, AffineTransform.IDENTITY, AffineTransform.IDENTITY) }
+            .filter { target ->
+                if (scratch.hasNativeStroke && target.hasNativeStroke) {
+                    runCatching {
+                        scratch.stroke.shape.intersects(target.stroke.shape, AffineTransform.IDENTITY, AffineTransform.IDENTITY)
+                    }.getOrDefault(false) || polylinesIntersect(scratch.points, target.points)
+                } else {
+                    polylinesIntersect(scratch.points, target.points)
+                }
+            }
             .sortedBy { it.finishedAtMillis }
             .toList()
         return ScratchDecision(metrics, true, hits)
+    }
+
+    private fun polylinesIntersect(pts1: List<com.axioloom.app.domain.model.InkPoint>, pts2: List<com.axioloom.app.domain.model.InkPoint>): Boolean {
+        if (pts1.size < 2 || pts2.size < 2) return false
+        for (i in 0 until pts1.size - 1) {
+            val p1 = pts1[i]
+            val p2 = pts1[i + 1]
+            for (j in 0 until pts2.size - 1) {
+                val p3 = pts2[j]
+                val p4 = pts2[j + 1]
+                if (segmentsIntersect(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y)) return true
+            }
+        }
+        return false
+    }
+
+    private fun segmentsIntersect(
+        x1: Float, y1: Float, x2: Float, y2: Float,
+        x3: Float, y3: Float, x4: Float, y4: Float
+    ): Boolean {
+        fun ccw(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float): Float {
+            return (cy - ay) * (bx - ax) - (by - ay) * (cx - ax)
+        }
+        val ccw1 = ccw(x1, y1, x2, y2, x3, y3)
+        val ccw2 = ccw(x1, y1, x2, y2, x4, y4)
+        val ccw3 = ccw(x3, y3, x4, y4, x1, y1)
+        val ccw4 = ccw(x3, y3, x4, y4, x2, y2)
+        return ((ccw1 > 0f && ccw2 < 0f) || (ccw1 < 0f && ccw2 > 0f)) &&
+               ((ccw3 > 0f && ccw4 < 0f) || (ccw3 < 0f && ccw4 > 0f))
     }
 
     private fun countHorizontalFlips(points: List<com.axioloom.app.domain.model.InkPoint>, width: Float): Int {

@@ -18,7 +18,8 @@ data class BeamHypothesis(
     val braceDepth: Int = 0,
     val envStack: List<String> = emptyList(),
     val isEnded: Boolean = false,
-    val coverage: FloatArray? = null
+    val coverage: FloatArray? = null,
+    val pendingMandatoryGroups: Int = 0
 ) {
     fun lengthPenalizedScore(alpha: Double = 0.6): Double {
         val t = (tokens.size - 1).coerceAtLeast(1) // exclude start token
@@ -44,13 +45,13 @@ class ConstrainedBeamDecoder(
     val beamWidth: Int = 3,
     val lengthPenaltyAlpha: Double = 0.6
 ) {
-    private val openBraceId = vocabulary.idFor("{")
-    private val closeBraceId = vocabulary.idFor("}")
+    private val openBraceId = vocabulary.exactIdFor("{")
+    private val closeBraceId = vocabulary.exactIdFor("}")
     private val endId = vocabulary.endId
 
     private val nonGroupPredecessors = setOf(
         "\\frac", "\\dfrac", "\\tfrac", "\\sqrt", "_", "^"
-    ).mapNotNull { vocabulary.idFor(it) }.toSet()
+    ).mapNotNull { vocabulary.exactIdFor(it) }.toSet()
 
     /**
      * Converts raw unnormalized logits to log-probabilities using numerically stable max-trick:
@@ -101,25 +102,29 @@ class ConstrainedBeamDecoder(
     ): BooleanArray {
         val mask = BooleanArray(vocabulary.size)
 
-        // 1. Mask closing brace if braceDepth == 0
+        // 1. Mask closing brace if braceDepth <= 0
         if (hyp.braceDepth <= 0 && closeBraceId != null && closeBraceId < mask.size) {
             mask[closeBraceId] = true
         }
 
-        // 2. Prevent empty groups after \frac, \sqrt, _, ^: e.g. "{" followed immediately by "}"
-        if (hyp.tokens.size >= 2 && closeBraceId != null && closeBraceId < mask.size) {
+        // 2. Prevent empty groups after open brace
+        if (hyp.tokens.isNotEmpty() && closeBraceId != null && closeBraceId < mask.size) {
             val lastToken = hyp.tokens.last()
-            val secondLast = hyp.tokens[hyp.tokens.size - 2]
-            if (lastToken == openBraceId && secondLast in nonGroupPredecessors) {
+            if (lastToken == openBraceId) {
                 mask[closeBraceId] = true
             }
         }
 
-        // 3. Mask <eos> while braces are open or environments are unclosed (unless near sequence cutoff)
-        val forceClose = (stepIndex >= maxSequenceLength - hyp.braceDepth)
-        if (!forceClose && (hyp.braceDepth > 0 || hyp.envStack.isNotEmpty())) {
-            if (endId < mask.size) {
-                mask[endId] = true
+        // 3. Mask <eos> while braces are open, environments are unclosed, or pending mandatory groups remain
+        val forceClose = (stepIndex >= maxSequenceLength - hyp.braceDepth - hyp.envStack.size)
+        if (!forceClose) {
+            if (hyp.braceDepth > 0 || hyp.envStack.isNotEmpty() || hyp.pendingMandatoryGroups > 0) {
+                if (endId < mask.size) mask[endId] = true
+            }
+        } else {
+            // Near sequence cutoff: disallow <eos> until braces and environments are closed
+            if (hyp.braceDepth > 0 || hyp.envStack.isNotEmpty()) {
+                if (endId < mask.size) mask[endId] = true
             }
         }
 
@@ -149,14 +154,22 @@ class ConstrainedBeamDecoder(
         val isEnded = (tokenId == endId)
         var newBraceDepth = hyp.braceDepth
         var newEnvStack = hyp.envStack
+        var newPendingGroups = hyp.pendingMandatoryGroups
+
+        val tokenText = vocabulary.tokenFor(tokenId)
+        if (tokenText in setOf("\\frac", "\\dfrac", "\\tfrac")) {
+            newPendingGroups += 2
+        } else if (tokenText in setOf("\\sqrt", "_", "^")) {
+            newPendingGroups += 1
+        }
 
         if (tokenId == openBraceId) {
             newBraceDepth++
+            if (newPendingGroups > 0) newPendingGroups--
         } else if (tokenId == closeBraceId) {
             newBraceDepth = (newBraceDepth - 1).coerceAtLeast(0)
         }
 
-        val tokenText = vocabulary.tokenFor(tokenId)
         if (tokenText.startsWith("\\begin{") && tokenText.endsWith("}")) {
             val env = tokenText.substring(7, tokenText.length - 1)
             newEnvStack = hyp.envStack + env
@@ -173,7 +186,8 @@ class ConstrainedBeamDecoder(
             braceDepth = newBraceDepth,
             envStack = newEnvStack,
             isEnded = isEnded,
-            coverage = nextCoverage ?: hyp.coverage
+            coverage = nextCoverage ?: hyp.coverage,
+            pendingMandatoryGroups = newPendingGroups
         )
     }
 

@@ -34,10 +34,14 @@ jobs:
 
       - name: Ensure Bundled HMER Vocabulary & Synthetic ONNX Model Assets Exist
         run: |
-          mkdir -p app/src/main/assets/hmer
+          mkdir -p /tmp/hmer_synthetic
           if [ -f "tools/hmer_export/export_hmer_to_onnx.py" ]; then
             pip install --quiet onnx numpy
-            python tools/hmer_export/export_hmer_to_onnx.py --mode synthetic --output-dir app/src/main/assets/hmer || true
+            python tools/hmer_export/export_hmer_to_onnx.py --mode synthetic --output-dir /tmp/hmer_synthetic || true
+          fi
+          mkdir -p app/src/main/assets/hmer
+          if [ -f "/tmp/hmer_synthetic/hmer_vocab.txt" ] && [ ! -f "app/src/main/assets/hmer/hmer_vocab.txt" ]; then
+            cp /tmp/hmer_synthetic/hmer_vocab.txt app/src/main/assets/hmer/
           fi
           ls -la app/src/main/assets/hmer
 

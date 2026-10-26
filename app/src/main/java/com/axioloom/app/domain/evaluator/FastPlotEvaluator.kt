@@ -1,6 +1,7 @@
 package com.axioloom.app.domain.evaluator
 
 import com.axioloom.app.domain.model.MathExpr
+import com.axioloom.app.domain.model.MathIntent
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.asin
@@ -26,7 +27,9 @@ object FastPlotEvaluator {
     fun evaluate(
         expr: MathExpr,
         params: Map<String, Double> = emptyMap(),
-        bindings: Map<String, Double> = emptyMap()
+        bindings: Map<String, Double> = emptyMap(),
+        functions: Map<String, MathIntent.FunctionDef> = emptyMap(),
+        depth: Int = 0
     ): Double = when (expr) {
         is MathExpr.Number -> expr.value.toDoubleOrNull() ?: Double.NaN
         is MathExpr.Constant -> when (expr) {
@@ -37,12 +40,12 @@ object FastPlotEvaluator {
         }
         is MathExpr.Symbol -> params[expr.name] ?: bindings[expr.name] ?: Double.NaN
         is MathExpr.Unary -> {
-            val v = evaluate(expr.value, params, bindings)
+            val v = evaluate(expr.value, params, bindings, functions, depth)
             if (expr.negative) -v else v
         }
         is MathExpr.Binary -> {
-            val left = evaluate(expr.left, params, bindings)
-            val right = evaluate(expr.right, params, bindings)
+            val left = evaluate(expr.left, params, bindings, functions, depth)
+            val right = evaluate(expr.right, params, bindings, functions, depth)
             if (left.isNaN() || right.isNaN()) Double.NaN else when (expr.op) {
                 MathExpr.Op.ADD -> left + right
                 MathExpr.Op.SUBTRACT -> left - right
@@ -56,7 +59,7 @@ object FastPlotEvaluator {
             }
         }
         is MathExpr.Builtin -> {
-            val arg = if (expr.arguments.isNotEmpty()) evaluate(expr.arguments[0], params, bindings) else Double.NaN
+            val arg = if (expr.arguments.isNotEmpty()) evaluate(expr.arguments[0], params, bindings, functions, depth) else Double.NaN
             if (arg.isNaN()) Double.NaN else when (expr.function) {
                 MathExpr.Function.SIN -> sin(arg)
                 MathExpr.Function.COS -> cos(arg)
@@ -88,15 +91,24 @@ object FastPlotEvaluator {
                 MathExpr.Function.RREF -> Double.NaN
             }
         }
-        is MathExpr.Phasor -> Double.NaN
         is MathExpr.Call -> {
-            val arg = if (expr.arguments.isNotEmpty()) evaluate(expr.arguments[0], params, bindings) else Double.NaN
-            bindings[expr.function]?.let { it * arg } ?: Double.NaN
+            if (depth > 16) Double.NaN
+            else {
+                val funcDef = functions[expr.function]
+                if (funcDef != null && expr.arguments.size == funcDef.params.size) {
+                    val evaluatedArgs = expr.arguments.map { evaluate(it, params, bindings, functions, depth + 1) }
+                    val localBindings = bindings + funcDef.params.zip(evaluatedArgs).toMap()
+                    evaluate(funcDef.body, params, localBindings, functions, depth + 1)
+                } else {
+                    val arg = if (expr.arguments.isNotEmpty()) evaluate(expr.arguments[0], params, bindings, functions, depth + 1) else Double.NaN
+                    bindings[expr.function]?.let { it * arg } ?: Double.NaN
+                }
+            }
         }
-        is MathExpr.TaylorSeries -> evaluate(expr.body, params, bindings)
+        is MathExpr.TaylorSeries -> evaluate(expr.body, params, bindings, functions, depth)
         is MathExpr.Relational -> {
-            val l = evaluate(expr.left, params, bindings)
-            val r = evaluate(expr.right, params, bindings)
+            val l = evaluate(expr.left, params, bindings, functions, depth)
+            val r = evaluate(expr.right, params, bindings, functions, depth)
             if (l.isNaN() || r.isNaN()) Double.NaN else {
                 val holds = when (expr.op) {
                     MathExpr.RelOp.LT -> l < r
@@ -113,22 +125,27 @@ object FastPlotEvaluator {
         is MathExpr.Piecewise -> {
             var result = Double.NaN
             for (branch in expr.branches) {
-                val cond = evaluate(branch.condition, params, bindings)
+                val cond = evaluate(branch.condition, params, bindings, functions, depth)
                 if (!cond.isNaN() && cond > 0.5) {
-                    result = evaluate(branch.value, params, bindings)
+                    result = evaluate(branch.value, params, bindings, functions, depth)
                     break
                 }
             }
-            if (result.isNaN()) evaluate(expr.defaultExpr, params, bindings) else result
+            if (result.isNaN()) evaluate(expr.defaultExpr, params, bindings, functions, depth) else result
         }
+        is MathExpr.Phasor,
         is MathExpr.Integral,
         is MathExpr.Derivative,
-        is MathExpr.Sum,
+        is MathExpr.Sum -> {
+            val merged = bindings + params
+            com.axioloom.app.domain.dag.FastNumericPropagator.evaluateExpr(expr, merged, functions, depth)
+        }
         is MathExpr.Limit,
         is MathExpr.Matrix,
         is MathExpr.LaplaceTransform,
         is MathExpr.InverseLaplaceTransform,
         is MathExpr.ZTransform,
+        is MathExpr.InverseZTransform,
         is MathExpr.Gradient,
         is MathExpr.Divergence,
         is MathExpr.Curl,

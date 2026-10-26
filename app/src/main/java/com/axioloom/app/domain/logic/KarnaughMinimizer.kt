@@ -281,7 +281,9 @@ object KarnaughMinimizer {
      * Parses a boolean / minterm expression like "\operatorname{kmap}(4, \sum m(0, 1, 2, 5, 8, 9, 10))"
      * or "kmap(4, m(0, 1, 2), d(5))"
      */
-    fun parseKmapCommand(raw: String): MinimizationResult? {
+    data class KmapParams(val numVars: Int, val minterms: Set<Int>, val dontCares: Set<Int>)
+
+    fun parseKmapParams(raw: String): KmapParams? {
         val clean = raw.trim()
         val numVars = when {
             clean.contains("4") -> 4
@@ -308,7 +310,6 @@ object KarnaughMinimizer {
         }
 
         if (minterms.isEmpty()) {
-            // Check direct numbers in arguments
             val nums = Regex("[0-9]+").findAll(clean).map { it.value.toInt() }.toList()
             if (nums.size > 1) {
                 minterms.addAll(nums.drop(1))
@@ -316,8 +317,11 @@ object KarnaughMinimizer {
         }
 
         if (minterms.isEmpty()) return null
-        return minimize(minterms, dontCares, numVars)
+        return KmapParams(numVars, minterms, dontCares)
     }
+
+    fun parseKmapCommand(raw: String): MinimizationResult? =
+        parseKmapParams(raw)?.let { minimize(it.minterms, it.dontCares, it.numVars) }
 
     /**
      * Returns Gray code order for rows and columns.

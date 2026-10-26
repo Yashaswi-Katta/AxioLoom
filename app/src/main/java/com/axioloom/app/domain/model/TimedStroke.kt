@@ -67,7 +67,8 @@ class StrokeGeometry(
 class TimedStroke internal constructor(
     stroke: Stroke?,
     val finishedAtMillis: Long,
-    val geometry: StrokeGeometry
+    val geometry: StrokeGeometry,
+    val translationOffset: androidx.compose.ui.geometry.Offset = androidx.compose.ui.geometry.Offset.Zero
 ) {
     val id: UUID get() = geometry.id
     val bounds: Rect get() = geometry.bounds
@@ -82,7 +83,7 @@ class TimedStroke internal constructor(
         val translatedPoints = points.map { InkPoint(it.x + dx, it.y + dy, it.elapsedTimeMillis) }
         val translatedBounds = Rect(bounds.left + dx, bounds.top + dy, bounds.right + dx, bounds.bottom + dy)
         val newGeom = StrokeGeometry(id, translatedPoints, translatedBounds)
-        return TimedStroke(_stroke, finishedAtMillis, newGeom)
+        return TimedStroke(null, finishedAtMillis, newGeom, androidx.compose.ui.geometry.Offset(translationOffset.x + dx, translationOffset.y + dy))
     }
 
     companion object {

@@ -90,9 +90,9 @@ fun SmithChartCard(
     initialZ0: Double = 50.0,
     onClose: () -> Unit = {}
 ) {
-    var rL by remember { mutableStateOf(initialRL) }
-    var xL by remember { mutableStateOf(initialXL) }
-    var z0 by remember { mutableStateOf(initialZ0) }
+    var rL by remember(initialRL) { mutableStateOf(initialRL) }
+    var xL by remember(initialXL) { mutableStateOf(initialXL) }
+    var z0 by remember(initialZ0) { mutableStateOf(initialZ0) }
 
     val analysis = remember(rL, xL, z0) {
         SmithChartMath.compute(rL, xL, z0)
@@ -204,7 +204,7 @@ fun SmithChartCard(
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(
-                        text = "Z_L = ${rL.roundToInt()} + j(${xL.roundToInt()}) Ω  (z_L = ${"%.2f".format(analysis.rNorm)} + j${"%.2f".format(analysis.xNorm)})",
+                        text = "Z_L = ${rL.roundToInt()} + j(${xL.roundToInt()}) Ω  (z_L = ${String.format(java.util.Locale.US, "%.2f", analysis.rNorm)} + j${String.format(java.util.Locale.US, "%.2f", analysis.xNorm)})",
                         color = Color(0xFFF4F5F7),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
@@ -219,21 +219,21 @@ fun SmithChartCard(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(
-                        text = "|Γ| = ${"%.3f".format(analysis.gammaMag)} ∠ ${"%.1f".format(analysis.gammaAngleDeg)}°",
+                        text = "|Γ| = ${String.format(java.util.Locale.US, "%.3f", analysis.gammaMag)} ∠ ${String.format(java.util.Locale.US, "%.1f", analysis.gammaAngleDeg)}°",
                         color = Color(0xFFFFB300),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
-                        text = "VSWR = ${if (analysis.vswr.isInfinite()) "∞" else "%.2f".format(analysis.vswr)}",
+                        text = "VSWR = ${if (analysis.vswr.isInfinite()) "∞" else String.format(java.util.Locale.US, "%.2f", analysis.vswr)}",
                         color = if (analysis.vswr <= 1.5) Color(0xFF4CAF50) else if (analysis.vswr <= 2.5) Color(0xFFFFD54F) else Color(0xFFDC143C),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
-                        text = "RL = ${if (analysis.returnLossDb.isInfinite()) "∞" else "%.1f".format(analysis.returnLossDb)} dB",
+                        text = "RL = ${if (analysis.returnLossDb.isInfinite()) "∞" else String.format(java.util.Locale.US, "%.1f", analysis.returnLossDb)} dB",
                         color = Color(0xFFADB5BD),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
@@ -241,7 +241,7 @@ fun SmithChartCard(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Z_in(λ/4) = ${"%.1f".format(analysis.zInRe)} + j(${"%.1f".format(analysis.zInIm)}) Ω",
+                    text = "Z_in(λ/4) = ${String.format(java.util.Locale.US, "%.1f", analysis.zInRe)} + j(${String.format(java.util.Locale.US, "%.1f", analysis.zInIm)}) Ω",
                     color = Color(0xFF81C784),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace

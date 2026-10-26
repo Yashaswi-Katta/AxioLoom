@@ -4,8 +4,10 @@ import com.axioloom.app.domain.model.BindingSnapshot
 import com.axioloom.app.domain.model.CasMode
 import com.axioloom.app.domain.model.CasResult
 import com.axioloom.app.domain.model.MathIntent
+import com.axioloom.app.domain.model.SymbolKey
 import com.axioloom.app.domain.model.SymbolicTransform
 import com.axioloom.app.domain.model.SymjaCompiler
+import com.axioloom.app.domain.model.referencedSymbols
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -36,6 +38,9 @@ class OfflineCasEngine : Closeable {
                 Config.JAS_NO_THREADS = true
                 Config.JAVA_AWT_DESKTOP_AVAILABLE = false
                 Config.FILESYSTEM_ENABLED = false
+                Config.SERVER_MODE = true
+                Config.FUZZY_PARSER = false
+                F.initSymbols()
                 configured = true
             }.onFailure { error ->
                 android.util.Log.w("OfflineCasEngine", "Failed during Symja Android static pre-configuration", error)
@@ -44,7 +49,9 @@ class OfflineCasEngine : Closeable {
     }
 
     private val executor = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "AxioLoom-Symja").apply { isDaemon = true }
+        Thread(null, task, "AxioLoom-Symja", 8L * 1024L * 1024L).apply {
+            isDaemon = true
+        }
     }
     private val dispatcher: CoroutineDispatcher = executor.asCoroutineDispatcher()
 
@@ -66,7 +73,7 @@ class OfflineCasEngine : Closeable {
         }
     }
 
-    suspend fun warmUp() = withContext(dispatcher) {
+    suspend fun warmUp(): Unit = withContext(dispatcher) {
         try {
             val active = getEvaluator()
             val engine = active.evalEngine
@@ -100,7 +107,11 @@ class OfflineCasEngine : Closeable {
                 SymbolicTransform.TOGETHER -> "Together(${compiled.command})"
                 SymbolicTransform.TRIG_EXPAND -> "TrigExpand(${compiled.command})"
                 SymbolicTransform.TRIG_REDUCE -> "TrigReduce(${compiled.command})"
-                SymbolicTransform.TAYLOR_SERIES -> "Normal(Series(${compiled.command},{If(Length(Variables(${compiled.command}))>0,Variables(${compiled.command})[[1]],x),0,5}))"
+                SymbolicTransform.TAYLOR_SERIES -> {
+                    val primarySymbol = intent.referencedSymbols.firstOrNull { it.kind == SymbolKey.Kind.VALUE }?.name ?: "x"
+                    val seriesVar = SymjaCompiler.encode(primarySymbol)
+                    "Normal(Series(${compiled.command},{$seriesVar,0,5}))"
+                }
             }
             val command = if (approximate) "N($baseCommand,6)" else baseCommand
             val active = getEvaluator()
@@ -110,8 +121,8 @@ class OfflineCasEngine : Closeable {
             EvalEngine.set(active.evalEngine)
             val converted = TeXUtilities(active.evalEngine, false).toTeX(result, writer)
             val latexOutput = writer.toString()
-            val latex = if (converted && latexOutput.isNotEmpty()) applyLatexAliases(latexOutput, compiled.latexAliases) else result.toString()
-            CasResult(result.toString(), latex, approximate)
+            val latex = if (converted && latexOutput.isNotEmpty()) applyLatexAliases(latexOutput, compiled.latexAliases) else SymjaCompiler.decode(result.toString())
+            CasResult(SymjaCompiler.decode(result.toString()), latex, approximate)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
@@ -141,7 +152,7 @@ class OfflineCasEngine : Closeable {
             EvalEngine.set(active.evalEngine)
             val converted = TeXUtilities(active.evalEngine, false).toTeX(result, writer)
             val latexOutput = writer.toString()
-            if (converted && latexOutput.isNotEmpty()) applyLatexAliases(latexOutput, aliases) else result.toString()
+            if (converted && latexOutput.isNotEmpty()) applyLatexAliases(latexOutput, aliases) else SymjaCompiler.decode(result.toString())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
@@ -151,7 +162,9 @@ class OfflineCasEngine : Closeable {
 
     private fun applyLatexAliases(latex: String, aliases: Map<String, String>): String {
         var output = latex
-        aliases.forEach { (encoded, replacement) -> output = output.replace(encoded, replacement) }
+        aliases.entries.sortedByDescending { it.key.length }.forEach { (encoded, replacement) ->
+            output = output.replace(encoded, replacement)
+        }
         return output
     }
 

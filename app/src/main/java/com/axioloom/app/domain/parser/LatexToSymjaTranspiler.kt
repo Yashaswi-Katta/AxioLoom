@@ -1,6 +1,7 @@
 package com.axioloom.app.domain.parser
 
 import com.axioloom.app.domain.model.*
+import com.axioloom.app.domain.logic.KarnaughMinimizer
 
 open class MathParseException(message: String) : IllegalArgumentException(message)
 
@@ -19,6 +20,16 @@ class LatexToSymjaTranspiler {
         var clean = latex.trim()
         if (clean.startsWith("$$") && clean.endsWith("$$") && clean.length >= 4) clean = clean.substring(2, clean.length - 2)
         else if (clean.startsWith('$') && clean.endsWith('$') && clean.length >= 2) clean = clean.substring(1, clean.length - 1)
+        val kmapRegex = Regex("(?:\\\\operatorname\\s*\\{\\s*kmap\\s*}|\\bkmap\\b)", RegexOption.IGNORE_CASE)
+        if (kmapRegex.containsMatchIn(clean)) {
+            val kmapResult = KarnaughMinimizer.parseKmapCommand(clean)
+            if (kmapResult != null) {
+                return TranspiledMath(
+                    cleanLatex = kmapResult.minimalSopLatex,
+                    intent = MathIntent.EvaluationQuery(MathExpr.Symbol(kmapResult.minimalSopLatex), false)
+                )
+            }
+        }
         clean = com.axioloom.app.domain.model.EngineeringConstants.expandSiSuffixes(clean)
         clean = clean.replace(Regex("\\\\(?:left|right|quad|qquad)(?![A-Za-z])"), "")
             .replace("\\{", "{")
@@ -33,15 +44,18 @@ class LatexToSymjaTranspiler {
             .replace(Regex("\\\\text\\s*\\{\\s*if\\s*}|\\bif\\b"), " ")
             .replace(Regex("\\\\parallel"), " || ")
             .replace(Regex("\\\\(?:\\|)"), " || ")
-            .replace(Regex("\\\\operatorname\\s*\\{\\s*Zc\\s*}\\s*\\(([^,]+),([^)]+)\\)", RegexOption.IGNORE_CASE)) {
-                "(\\frac{1}{(${it.groupValues[2]}) * (${it.groupValues[1]})})"
-            }.replace(Regex("\\\\operatorname\\s*\\{\\s*Zl\\s*}\\s*\\(([^,]+),([^)]+)\\)", RegexOption.IGNORE_CASE)) {
-                "((${it.groupValues[2]}) * (${it.groupValues[1]}))"
-            }.replace(Regex("\\bZc\\s*\\(([^,]+),([^)]+)\\)", RegexOption.IGNORE_CASE)) {
-                "(\\frac{1}{(${it.groupValues[2]}) * (${it.groupValues[1]})})"
-            }.replace(Regex("\\bZl\\s*\\(([^,]+),([^)]+)\\)", RegexOption.IGNORE_CASE)) {
-                "((${it.groupValues[2]}) * (${it.groupValues[1]}))"
-            }
+            .replace(Regex("""\\partial\b"""), "d")
+                        .replace(Regex("""\\pm\b"""), "+")
+            .replace(Regex("""\\mp\b"""), "-")
+            .replace(Regex("""\\equiv\b"""), "==")
+            .replace(Regex("""\\propto\b"""), "==")
+            .replace(Regex("""\\leftarrow\b"""), "->")
+            .replace(Regex("""\\iint\b"""), "\\int ")
+            .replace(Regex("""\\iiint\b"""), "\\int ")
+            .replace(Regex("""\\oint\b"""), "\\int ")
+            .replace(Regex("""\\mathcal\s*(?:\{\s*F\s*\}|F\b)"""), "\\fourier ")
+            .replace(Regex("""\\operatorname\s*\{\s*deg\s*\}\s*\(([^)]+)\)""")) { "((${it.groupValues[1]}) * 180 / \\pi)" }
+            .replace(Regex("""\\operatorname\s*\{\s*rad\s*\}\s*\(([^)]+)\)""")) { "((${it.groupValues[1]}) * \\pi / 180)" }
             .replace(Regex("\\\\(?:vec|mathbf|boldsymbol|mathrm|text)\\s*\\{([^}]+)\\}")) { it.groupValues[1] }
             .replace(Regex("\\\\mathrm\\s*\\{\\s*d\\s*}"), "d")
             .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*L\\s*}|L\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))")) { "\\ilaplace " }
@@ -170,8 +184,11 @@ class LatexToSymjaTranspiler {
                         while (end < text.length && (text[end] in 'a'..'z' || text[end] in 'A'..'Z')) end++
                         val word = text.substring(start, end)
                         if (word == "otherwise") { at = end; tokens += Token(Kind.OTHERWISE, word, start) }
-                        else if (word in functions || word == "taylor" || word == "series" || word == "conv" || word == "cconv" || word == "dft" || word == "idft" || word == "laplace" || word == "ilaplace" || word == "ztrans" || word == "iztrans") { at = end; tokens += Token(Kind.COMMAND, word, start) }
-                        else tokens += Token(Kind.NAME, c.toString(), start)
+                        else if (word in functions || word.equals("Zc", ignoreCase = true) || word.equals("Zl", ignoreCase = true) || word in setOf("taylor", "series", "conv", "cconv", "dft", "idft", "laplace", "ilaplace", "ztrans", "iztrans", "vec", "mathbf", "boldsymbol", "mathrm", "text")) { at = end; tokens += Token(Kind.COMMAND, word, start) }
+                        else if (end < text.length && text[end] == '_') {
+                            at = end
+                            tokens += Token(Kind.NAME, word, start)
+                        } else tokens += Token(Kind.NAME, c.toString(), start)
                     }
                     c == '\\' -> {
                         if (at < text.length && text[at] == '\\') { at++; tokens += Token(Kind.ROW, "\\\\", start) }
@@ -203,8 +220,9 @@ class LatexToSymjaTranspiler {
                                 "neq" -> tokens += Token(Kind.NEQ, "!=", start)
                                 "Re", "Im" -> tokens += Token(Kind.COMMAND, command, start)
                                 "frac", "dfrac", "tfrac", "sqrt", "int", "sum", "lim", "pi", "infty", "imaginaryi", "imath" -> tokens += Token(Kind.COMMAND, command, start)
-                                "laplace", "ilaplace", "ztrans", "iztrans", "grad", "curl", "divergence", "theta", "unitstep", "step", "diracdelta", "dirac", "delta", "taylor", "series", "conv", "cconv", "dft", "idft", "linreg", "polyreg", "mean", "stdev" -> tokens += Token(Kind.COMMAND, command, start)
+                                "laplace", "ilaplace", "ztrans", "iztrans", "grad", "curl", "divergence", "unitstep", "step", "diracdelta", "dirac", "taylor", "series", "conv", "cconv", "dft", "idft", "linreg", "polyreg", "mean", "stdev", "vec", "mathbf", "boldsymbol", "mathrm", "text", "prod", "fourier", "zc", "zl", "Zc", "Zl" -> tokens += Token(Kind.COMMAND, command, start)
                                 in functions -> tokens += Token(Kind.COMMAND, command, start)
+                                in setOf("alpha", "beta", "gamma", "delta", "epsilon", "varepsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "rho", "sigma", "tau", "upsilon", "phi", "varphi", "chi", "psi", "omega", "Delta", "Gamma", "Theta", "Lambda", "Xi", "Pi", "Sigma", "Phi", "Psi", "Omega", "hbar") -> tokens += Token(Kind.NAME, command, start)
                                 else -> throw MathParseException("Unsupported LaTeX command \\$command at $start")
                             }
                         }
@@ -375,15 +393,58 @@ class LatexToSymjaTranspiler {
                             when (name) {
                                 "u", "step", "unitstep" -> MathExpr.Builtin(MathExpr.Function.UNIT_STEP, arguments(closing))
                                 "delta", "dirac", "diracdelta" -> MathExpr.Builtin(MathExpr.Function.DIRAC_DELTA, arguments(closing))
-                                "grad" -> MathExpr.Gradient(arguments(closing).first(), listOf("x", "y", "z"))
-                                "div" -> MathExpr.Divergence(arguments(closing).first(), listOf("x", "y", "z"))
-                                "curl" -> MathExpr.Curl(arguments(closing).first(), listOf("x", "y", "z"))
-                                "laplace" -> MathExpr.LaplaceTransform(arguments(closing).first(), "t", "s")
-                                "ilaplace" -> MathExpr.InverseLaplaceTransform(arguments(closing).first(), "s", "t")
-                                "ztrans", "iztrans" -> MathExpr.ZTransform(arguments(closing).first(), "n", "z")
+                                "grad" -> {
+                                    val args = arguments(closing)
+                                    val target = if (args.size > 1) MathExpr.Matrix(listOf(args)) else args.first()
+                                    MathExpr.Gradient(target, listOf("x", "y", "z"))
+                                }
+                                "div", "divergence" -> {
+                                    val args = arguments(closing)
+                                    val target = if (args.size > 1) MathExpr.Matrix(listOf(args)) else args.first()
+                                    MathExpr.Divergence(target, listOf("x", "y", "z"))
+                                }
+                                "curl" -> {
+                                    val args = arguments(closing)
+                                    val target = if (args.size > 1) MathExpr.Matrix(listOf(args)) else args.first()
+                                    MathExpr.Curl(target, listOf("x", "y", "z"))
+                                }
+                                "laplace" -> {
+                                    val args = arguments(closing)
+                                    val tVar = if (args.size >= 3 && args[1] is MathExpr.Symbol) (args[1] as MathExpr.Symbol).name else "t"
+                                    val sVar = if (args.size >= 3 && args[2] is MathExpr.Symbol) (args[2] as MathExpr.Symbol).name else "s"
+                                    MathExpr.LaplaceTransform(args.first(), tVar, sVar)
+                                }
+                                "ilaplace" -> {
+                                    val args = arguments(closing)
+                                    val sVar = if (args.size >= 3 && args[1] is MathExpr.Symbol) (args[1] as MathExpr.Symbol).name else "s"
+                                    val tVar = if (args.size >= 3 && args[2] is MathExpr.Symbol) (args[2] as MathExpr.Symbol).name else "t"
+                                    MathExpr.InverseLaplaceTransform(args.first(), sVar, tVar)
+                                }
+                                "ztrans" -> {
+                                    val args = arguments(closing)
+                                    val nVar = if (args.size >= 3 && args[1] is MathExpr.Symbol) (args[1] as MathExpr.Symbol).name else "n"
+                                    val zVar = if (args.size >= 3 && args[2] is MathExpr.Symbol) (args[2] as MathExpr.Symbol).name else "z"
+                                    MathExpr.ZTransform(args.first(), nVar, zVar)
+                                }
+                                "iztrans" -> {
+                                    val args = arguments(closing)
+                                    val zVar = if (args.size >= 3 && args[1] is MathExpr.Symbol) (args[1] as MathExpr.Symbol).name else "z"
+                                    val nVar = if (args.size >= 3 && args[2] is MathExpr.Symbol) (args[2] as MathExpr.Symbol).name else "n"
+                                    MathExpr.InverseZTransform(args.first(), zVar, nVar)
+                                }
                                 "taylor", "series" -> {
                                     at--
                                     parseTaylorSeries()
+                                }
+                                "zc", "Zc", "ZC" -> {
+                                    val args = arguments(closing)
+                                    expect(args.size == 2, "Zc requires (C, s)")
+                                    MathExpr.Binary(MathExpr.Op.DIVIDE, MathExpr.Number("1"), MathExpr.Binary(MathExpr.Op.MULTIPLY, args[1], args[0]))
+                                }
+                                "zl", "Zl", "ZL" -> {
+                                    val args = arguments(closing)
+                                    expect(args.size == 2, "Zl requires (L, s)")
+                                    MathExpr.Binary(MathExpr.Op.MULTIPLY, args[1], args[0])
                                 }
                                 else -> MathExpr.Call(name, arguments(closing))
                             }
@@ -532,16 +593,24 @@ class LatexToSymjaTranspiler {
                 val differential = Parser(denominator, boundSymbols, localScope)
                 val isD = numerator.isNotEmpty() && numerator[0].kind == Kind.NAME && numerator[0].text == "d"
                 var order = 1
+                var inlineBodyTokens: List<Token>? = null
+
                 if (isD) {
                     if (numerator.size == 1) {
                         order = 1
                     } else if (numerator.size >= 3 && numerator[1].kind == Kind.POWER) {
-                        val ordExpr = Parser(numerator.subList(2, numerator.size), boundSymbols, localScope).expression()
+                        val ordExpr = Parser(listOf(numerator[2]), boundSymbols, localScope).expression()
                         if (ordExpr is MathExpr.Number) {
                             order = ordExpr.value.toIntOrNull() ?: 1
                         }
+                        if (numerator.size > 3) {
+                            inlineBodyTokens = numerator.subList(3, numerator.size)
+                        }
                     } else if (numerator.size == 2 && numerator[1].kind == Kind.NUMBER) {
                         order = numerator[1].text.toIntOrNull() ?: 1
+                    } else if (numerator.size >= 2) {
+                        order = 1
+                        inlineBodyTokens = numerator.subList(1, numerator.size)
                     }
                 }
                 if (isD && denominator.firstOrNull()?.let { it.kind == Kind.NAME && it.text == "d" } == true && denominator.size >= 2) {
@@ -551,7 +620,12 @@ class LatexToSymjaTranspiler {
                         if (differential.peek()?.kind == Kind.LB) differential.group() else differential.take()
                     }
                     expect(differential.at == denominator.size, "Only derivatives d/dx or d^n/dx^n are supported")
-                    MathExpr.Derivative(body(), variable, order)
+                    val derivBody = if (inlineBodyTokens != null && inlineBodyTokens.isNotEmpty()) {
+                        parse(inlineBodyTokens, boundSymbols, localScope)
+                    } else {
+                        body()
+                    }
+                    MathExpr.Derivative(derivBody, variable, order)
                 } else MathExpr.Binary(MathExpr.Op.DIVIDE, parse(numerator, boundSymbols, localScope), parse(denominator, boundSymbols, localScope))
             }
             "sqrt" -> {
@@ -584,18 +658,36 @@ class LatexToSymjaTranspiler {
                 val variable = identifier()
                 MathExpr.Integral(integrand, variable, lower?.let { parse(it, boundSymbols, localScope) }, upper?.let { parse(it, boundSymbols, localScope) })
             }
-            "sum" -> {
+            "sum", "prod" -> {
                 val (lower, upper) = scripts()
-                expect(lower != null && upper != null, "Sum needs lower and upper bounds")
+                expect(lower != null && upper != null, "$name needs lower and upper bounds")
                 val parts = splitTop(requireNotNull(lower), Kind.EQUAL)
-                expect(parts.size == 2, "Sum lower bound must be i=a")
+                expect(parts.size == 2, "$name lower bound must be i=a")
                 val variableParser = Parser(parts[0], boundSymbols, localScope)
                 val variable = variableParser.identifier()
-                expect(variableParser.at == parts[0].size, "Invalid summation variable")
+                expect(variableParser.at == parts[0].size, "Invalid $name variable")
                 localScope.add(variable)
-                val sumBody = body()
+                val sBody = body()
                 localScope.remove(variable)
-                MathExpr.Sum(sumBody, variable, parse(parts[1], boundSymbols, localScope), parse(requireNotNull(upper), boundSymbols, localScope))
+                if (name == "prod") {
+                    MathExpr.Call("Product", listOf(sBody, MathExpr.Symbol(variable), parse(parts[1], boundSymbols, localScope), parse(requireNotNull(upper), boundSymbols, localScope)))
+                } else {
+                    MathExpr.Sum(sBody, variable, parse(parts[1], boundSymbols, localScope), parse(requireNotNull(upper), boundSymbols, localScope))
+                }
+            }
+            "zc", "zl" -> {
+                val closing = if (peek()?.kind == Kind.LB) { take(); Kind.RB } else { need(Kind.LP); Kind.RP }
+                val args = arguments(closing)
+                expect(args.size == 2, "$name requires 2 arguments")
+                if (name == "zc") MathExpr.Binary(MathExpr.Op.DIVIDE, MathExpr.Number("1"), MathExpr.Binary(MathExpr.Op.MULTIPLY, args[1], args[0]))
+                else MathExpr.Binary(MathExpr.Op.MULTIPLY, args[1], args[0])
+            }
+            "fourier" -> {
+                val arg = if (peek()?.kind in setOf(Kind.LP, Kind.LB)) {
+                    val closing = if (take().kind == Kind.LB) Kind.RB else Kind.RP
+                    arguments(closing).first()
+                } else expression(21)
+                MathExpr.Call("FourierTransform", listOf(arg, MathExpr.Symbol("t"), MathExpr.Symbol("w")))
             }
             "lim" -> {
                 need(Kind.UNDER)
@@ -606,12 +698,70 @@ class LatexToSymjaTranspiler {
                 expect(variableParser.at == parts[0].size, "Invalid limit variable")
                 MathExpr.Limit(body(), variable, parse(parts[1], boundSymbols, localScope))
             }
-            "laplace" -> MathExpr.LaplaceTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "t", "s")
-            "ilaplace" -> MathExpr.InverseLaplaceTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "s", "t")
-            "ztrans", "iztrans" -> MathExpr.ZTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "n", "z")
-            "grad" -> MathExpr.Gradient(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
-            "divergence" -> MathExpr.Divergence(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
-            "curl" -> MathExpr.Curl(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
+            "vec", "mathbf", "boldsymbol", "mathrm", "text" -> {
+                val argTokens = if (peek()?.kind == Kind.LB) group() else listOf(take())
+                parse(argTokens, boundSymbols, localScope)
+            }
+            "laplace" -> {
+                if (peek()?.kind in setOf(Kind.LP, Kind.LB)) {
+                    val closing = if (take().kind == Kind.LB) Kind.RB else Kind.RP
+                    val args = arguments(closing)
+                    val tVar = if (args.size >= 3 && args[1] is MathExpr.Symbol) (args[1] as MathExpr.Symbol).name else "t"
+                    val sVar = if (args.size >= 3 && args[2] is MathExpr.Symbol) (args[2] as MathExpr.Symbol).name else "s"
+                    MathExpr.LaplaceTransform(args.first(), tVar, sVar)
+                } else MathExpr.LaplaceTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "t", "s")
+            }
+            "ilaplace" -> {
+                if (peek()?.kind in setOf(Kind.LP, Kind.LB)) {
+                    val closing = if (take().kind == Kind.LB) Kind.RB else Kind.RP
+                    val args = arguments(closing)
+                    val sVar = if (args.size >= 3 && args[1] is MathExpr.Symbol) (args[1] as MathExpr.Symbol).name else "s"
+                    val tVar = if (args.size >= 3 && args[2] is MathExpr.Symbol) (args[2] as MathExpr.Symbol).name else "t"
+                    MathExpr.InverseLaplaceTransform(args.first(), sVar, tVar)
+                } else MathExpr.InverseLaplaceTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "s", "t")
+            }
+            "ztrans" -> {
+                if (peek()?.kind in setOf(Kind.LP, Kind.LB)) {
+                    val closing = if (take().kind == Kind.LB) Kind.RB else Kind.RP
+                    val args = arguments(closing)
+                    val nVar = if (args.size >= 3 && args[1] is MathExpr.Symbol) (args[1] as MathExpr.Symbol).name else "n"
+                    val zVar = if (args.size >= 3 && args[2] is MathExpr.Symbol) (args[2] as MathExpr.Symbol).name else "z"
+                    MathExpr.ZTransform(args.first(), nVar, zVar)
+                } else MathExpr.ZTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "n", "z")
+            }
+            "iztrans" -> {
+                if (peek()?.kind in setOf(Kind.LP, Kind.LB)) {
+                    val closing = if (take().kind == Kind.LB) Kind.RB else Kind.RP
+                    val args = arguments(closing)
+                    val zVar = if (args.size >= 3 && args[1] is MathExpr.Symbol) (args[1] as MathExpr.Symbol).name else "z"
+                    val nVar = if (args.size >= 3 && args[2] is MathExpr.Symbol) (args[2] as MathExpr.Symbol).name else "n"
+                    MathExpr.InverseZTransform(args.first(), zVar, nVar)
+                } else MathExpr.InverseZTransform(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), "z", "n")
+            }
+            "grad" -> {
+                if (peek()?.kind in setOf(Kind.LP, Kind.LB)) {
+                    val closing = if (take().kind == Kind.LB) Kind.RB else Kind.RP
+                    val args = arguments(closing)
+                    val target = if (args.size > 1) MathExpr.Matrix(listOf(args)) else args.first()
+                    MathExpr.Gradient(target, listOf("x", "y", "z"))
+                } else MathExpr.Gradient(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
+            }
+            "divergence" -> {
+                if (peek()?.kind in setOf(Kind.LP, Kind.LB)) {
+                    val closing = if (take().kind == Kind.LB) Kind.RB else Kind.RP
+                    val args = arguments(closing)
+                    val target = if (args.size > 1) MathExpr.Matrix(listOf(args)) else args.first()
+                    MathExpr.Divergence(target, listOf("x", "y", "z"))
+                } else MathExpr.Divergence(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
+            }
+            "curl" -> {
+                if (peek()?.kind in setOf(Kind.LP, Kind.LB)) {
+                    val closing = if (take().kind == Kind.LB) Kind.RB else Kind.RP
+                    val args = arguments(closing)
+                    val target = if (args.size > 1) MathExpr.Matrix(listOf(args)) else args.first()
+                    MathExpr.Curl(target, listOf("x", "y", "z"))
+                } else MathExpr.Curl(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21), listOf("x", "y", "z"))
+            }
             "unitstep", "step" -> MathExpr.Builtin(MathExpr.Function.UNIT_STEP, listOf(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21)))
             "diracdelta", "dirac", "delta" -> MathExpr.Builtin(MathExpr.Function.DIRAC_DELTA, listOf(if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21)))
             "theta" -> {
@@ -640,6 +790,18 @@ class LatexToSymjaTranspiler {
             "idft" -> {
                 val arg = if (peek()?.kind == Kind.LP || peek()?.kind == Kind.LB) prefix() else expression(21)
                 MathExpr.DiscreteFourierTransform(arg, inverse = true)
+            }
+            "zc", "Zc", "ZC" -> {
+                need(Kind.LP)
+                val args = arguments(Kind.RP)
+                expect(args.size == 2, "Zc requires (C, s)")
+                MathExpr.Binary(MathExpr.Op.DIVIDE, MathExpr.Number("1"), MathExpr.Binary(MathExpr.Op.MULTIPLY, args[1], args[0]))
+            }
+            "zl", "Zl", "ZL" -> {
+                need(Kind.LP)
+                val args = arguments(Kind.RP)
+                expect(args.size == 2, "Zl requires (L, s)")
+                MathExpr.Binary(MathExpr.Op.MULTIPLY, args[1], args[0])
             }
             "mean", "stdev", "linreg", "polyreg" -> {
                 need(Kind.LP)

@@ -32,6 +32,21 @@ class RasterizedTensor internal constructor(
     }
     fun shape(): LongArray = longArrayOf(1L, 1L, height.toLong(), width.toLong())
     fun asFloatBuffer(): FloatBuffer = values.duplicate().apply { rewind() }
+
+    fun buildMaskArray(contentMaskValue: Float = 0f, padMaskValue: Float = 1f): FloatArray {
+        val mask = FloatArray(height * width) { padMaskValue }
+        val startY = RasterDimensions.PADDING_PX.coerceIn(0, height)
+        val endY = (startY + contentHeight).coerceIn(0, height)
+        val startX = RasterDimensions.PADDING_PX.coerceIn(0, width)
+        val endX = (startX + contentWidth).coerceIn(0, width)
+        for (y in startY until endY) {
+            val rowOffset = y * width
+            for (x in startX until endX) {
+                mask[rowOffset + x] = contentMaskValue
+            }
+        }
+        return mask
+    }
 }
 
 data class RasterDimensions(val contentWidth: Int, val contentHeight: Int, val tensorWidth: Int, val tensorHeight: Int, val scale: Float) {

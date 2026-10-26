@@ -43,18 +43,20 @@ object BilinearDiscretizer {
 
     fun discretize(
         intent: MathIntent,
-        samplingFreqHz: Double = 1000.0
+        samplingFreqHz: Double = 1000.0,
+        boundValues: Map<String, Double> = emptyMap()
     ): DiscretizedFilter? {
-        val analysis = TransferFunctionAnalyzer.analyze(intent) ?: return null
+        val analysis = TransferFunctionAnalyzer.analyze(intent, boundValues) ?: return null
         return discretize(analysis.numeratorCoeffs, analysis.denominatorCoeffs, samplingFreqHz)
     }
 
     fun discretize(
         expr: MathExpr,
         samplingFreqHz: Double = 1000.0,
-        varName: String = "s"
+        varName: String = "s",
+        boundValues: Map<String, Double> = emptyMap()
     ): DiscretizedFilter? {
-        val analysis = TransferFunctionAnalyzer.analyzeExpression(expr, varName = varName) ?: return null
+        val analysis = TransferFunctionAnalyzer.analyzeExpression(expr, varName = varName, boundValues = boundValues) ?: return null
         return discretize(analysis.numeratorCoeffs, analysis.denominatorCoeffs, samplingFreqHz)
     }
 
@@ -150,7 +152,7 @@ object BilinearDiscretizer {
         for (k in b.indices) {
             val coeff = b[k] / a0
             if (kotlin.math.abs(coeff) > 1e-6) {
-                val formatted = "%.4f".format(coeff)
+                val formatted = String.format(java.util.Locale.US, "%.4f", coeff)
                 val delayStr = if (k == 0) "x[n]" else "x[n - $k]"
                 xTerms.add(if (formatted == "1.0000") delayStr else "$formatted $delayStr")
             }
@@ -160,7 +162,7 @@ object BilinearDiscretizer {
         for (k in 1 until a.size) {
             val coeff = a[k] / a0
             if (kotlin.math.abs(coeff) > 1e-6) {
-                val formatted = "%.4f".format(coeff)
+                val formatted = String.format(java.util.Locale.US, "%.4f", coeff)
                 val delayStr = "y[n - $k]"
                 yTerms.add(if (formatted == "1.0000") delayStr else "$formatted $delayStr")
             }

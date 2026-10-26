@@ -219,7 +219,7 @@ fun RootLocusNyquistCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Gain K: ${"%.2f".format(gainK)}",
+                        text = "Gain K: ${String.format(java.util.Locale.US, "%.2f", gainK)}",
                         fontSize = 11.sp,
                         color = Color(0xFFFFD54F),
                         fontFamily = FontFamily.Monospace,
@@ -239,7 +239,7 @@ fun RootLocusNyquistCard(
                     val wn = dominantPole.magnitude()
                     val zeta = if (wn > 1e-6) (-dominantPole.re / wn).coerceIn(-1.0, 1.0) else 0.0
                     Text(
-                        text = "Dominant Pole: ${dominantPole.formatted()}  ·  ζ = ${"%.3f".format(zeta)}  ·  ωn = ${"%.2f".format(wn)} rad/s",
+                        text = "Dominant Pole: ${dominantPole.formatted()}  ·  ζ = ${String.format(java.util.Locale.US, "%.3f", zeta)}  ·  ωn = ${String.format(java.util.Locale.US, "%.2f", wn)} rad/s",
                         fontSize = 11.sp,
                         color = Color(0xFFF4F5F7),
                         fontFamily = FontFamily.Monospace
@@ -255,19 +255,19 @@ fun RootLocusNyquistCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "GM: ${m.gainMarginDb?.let { "${"%.1f".format(it)} dB" } ?: "∞"}",
+                    text = "GM: ${m.gainMarginDb?.let { "${String.format(java.util.Locale.US, "%.1f", it)} dB" } ?: "∞"}",
                     fontSize = 11.sp,
                     color = Color(0xFFFFB300),
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "PM: ${m.phaseMarginDeg?.let { "${"%.1f".format(it)}°" } ?: "∞"}",
+                    text = "PM: ${m.phaseMarginDeg?.let { "${String.format(java.util.Locale.US, "%.1f", it)}°" } ?: "∞"}",
                     fontSize = 11.sp,
                     color = Color(0xFFFFD54F),
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "K_crit: ${m.criticalGainK?.let { "%.2f".format(it) } ?: "None"}",
+                    text = "K_crit: ${m.criticalGainK?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "None"}",
                     fontSize = 11.sp,
                     color = if (m.criticalGainK != null) Color(0xFFDC143C) else Color(0xFF64B5F6),
                     fontFamily = FontFamily.Monospace

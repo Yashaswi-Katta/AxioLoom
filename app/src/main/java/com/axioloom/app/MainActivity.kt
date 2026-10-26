@@ -104,7 +104,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         DiagnosticsScreen(
                             errorText = startupError ?: "Could not initialize AxioLoom workspace.",
-                            onDismiss = { },
+                            onDismiss = { recreate() },
                             onResetData = {
                                 runCatching {
                                     File(context.filesDir, "notebooks").deleteRecursively()

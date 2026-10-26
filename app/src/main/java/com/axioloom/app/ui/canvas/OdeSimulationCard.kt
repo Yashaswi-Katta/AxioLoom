@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.axioloom.app.domain.model.MathExpr
 import com.axioloom.app.domain.sim.OdeNumericalSimulator
 import com.axioloom.app.domain.sim.OdeTrajectory
 import kotlin.math.max
@@ -32,6 +33,7 @@ enum class OdeSystemPreset(val title: String) {
 @Composable
 fun OdeSimulationCard(
     modifier: Modifier = Modifier,
+    canvasOde: MathExpr? = null,
     onClose: () -> Unit = {}
 ) {
     var selectedPreset by remember { mutableStateOf(OdeSystemPreset.VAN_DER_POL) }
@@ -237,7 +239,7 @@ fun OdeSimulationCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Param: ${"%.2f".format(paramSlider)}",
+                    text = "Param: ${String.format(java.util.Locale.US, "%.2f", paramSlider)}",
                     fontSize = 11.sp,
                     color = Color(0xFFFFD54F),
                     fontFamily = FontFamily.Monospace,
@@ -256,7 +258,7 @@ fun OdeSimulationCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Init x0: ${"%.2f".format(initialPos)}",
+                    text = "Init x0: ${String.format(java.util.Locale.US, "%.2f", initialPos)}",
                     fontSize = 11.sp,
                     color = Color(0xFFFFB300),
                     fontFamily = FontFamily.Monospace,

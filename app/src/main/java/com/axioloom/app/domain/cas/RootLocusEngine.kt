@@ -39,13 +39,13 @@ data class RootLocusAnalysis(
  */
 object RootLocusEngine {
 
-    fun analyze(intent: MathIntent): RootLocusAnalysis? {
-        val analysis = TransferFunctionAnalyzer.analyze(intent) ?: return null
+    fun analyze(intent: MathIntent, boundValues: Map<String, Double> = emptyMap()): RootLocusAnalysis? {
+        val analysis = TransferFunctionAnalyzer.analyze(intent, boundValues) ?: return null
         return analyze(analysis.numeratorCoeffs, analysis.denominatorCoeffs)
     }
 
-    fun analyze(expr: MathExpr, varName: String = "s"): RootLocusAnalysis? {
-        val analysis = TransferFunctionAnalyzer.analyzeExpression(expr, varName = varName) ?: return null
+    fun analyze(expr: MathExpr, varName: String = "s", boundValues: Map<String, Double> = emptyMap()): RootLocusAnalysis? {
+        val analysis = TransferFunctionAnalyzer.analyzeExpression(expr, varName = varName, boundValues = boundValues) ?: return null
         return analyze(analysis.numeratorCoeffs, analysis.denominatorCoeffs)
     }
 
@@ -226,6 +226,7 @@ object RootLocusEngine {
         var prevPhaseDeg = 0.0
         var prevMag = 1.0
         var prevOmega = omegaMin
+        var initialized = false
 
         for (i in 0 until numPoints) {
             val frac = i.toDouble() / (numPoints - 1)
@@ -240,10 +241,22 @@ object RootLocusEngine {
 
             val mag = gVal.magnitude()
             var phase = gVal.phaseDeg()
-            if (phase > 0) phase -= 360.0 // Normalize to [-360, 0]
+
+            if (!initialized) {
+                prevPhaseDeg = phase
+                prevMag = mag
+                prevOmega = omega
+                initialized = true
+                continue
+            }
+
+            // Phase unwrapping continuously across frequency steps
+            val diff = phase - prevPhaseDeg
+            if (diff > 180.0) phase -= 360.0 * kotlin.math.round(diff / 360.0)
+            else if (diff < -180.0) phase -= 360.0 * kotlin.math.round(diff / 360.0)
 
             // Phase Crossover: crossing -180 deg
-            if (i > 0 && prevPhaseDeg > -180.0 && phase <= -180.0) {
+            if (prevPhaseDeg > -180.0 && phase <= -180.0) {
                 val f = (-180.0 - prevPhaseDeg) / (phase - prevPhaseDeg)
                 phaseCrossoverW = prevOmega + f * (omega - prevOmega)
                 val crossMag = prevMag + f * (mag - prevMag)
@@ -253,7 +266,7 @@ object RootLocusEngine {
             }
 
             // Gain Crossover: crossing 1.0 (0 dB)
-            if (i > 0 && prevMag > 1.0 && mag <= 1.0) {
+            if (prevMag > 1.0 && mag <= 1.0) {
                 val f = (1.0 - prevMag) / (mag - prevMag)
                 gainCrossoverW = prevOmega + f * (omega - prevOmega)
                 val crossPhase = prevPhaseDeg + f * (phase - prevPhaseDeg)

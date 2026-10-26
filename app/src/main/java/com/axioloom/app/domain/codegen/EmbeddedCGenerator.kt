@@ -29,21 +29,28 @@ object EmbeddedCGenerator {
     /**
      * Mode A: Generates C99 function from a MathExpr AST with Common Subexpression Elimination.
      */
+    fun sanitizeCIdent(name: String): String = name.replace(Regex("[^a-zA-Z0-9_]"), "_")
+
     fun generateMathFunction(
         expr: MathExpr,
         functionName: String = "evaluate_math",
         precision: CPrecision = CPrecision.FLOAT
     ): GeneratedCCode {
         val type = precision.typeName
-        val vars = expr.references().filter { it.kind == SymbolKey.Kind.VALUE }.map { it.name }.distinct().sorted()
+        val vars = expr.references().filter { it.kind == SymbolKey.Kind.VALUE }.map { sanitizeCIdent(it.name) }.distinct().sorted()
         val paramList = if (vars.isEmpty()) "void" else vars.joinToString(", ") { "$type $it" }
 
-        val cseSubtrees = mutableMapOf<String, String>()
+        // 1. Identify repeated compound subexpressions for Common Subexpression Elimination (CSE)
+        val subexprCounts = mutableMapOf<String, Int>()
+        collectCompoundSubexprs(expr, subexprCounts, precision)
+        val repeatedSubexprs = subexprCounts.filter { it.value > 1 && it.key.length > 3 }.keys
+
+        val cseSubtrees = linkedMapOf<String, String>()
+        val rawToTemp = mutableMapOf<String, String>()
         var varCounter = 1
 
-        val exprCode = emitCExpr(expr, precision, cseSubtrees) {
+        val exprCode = emitCExpr(expr, precision, cseSubtrees, repeatedSubexprs, rawToTemp) {
             val varName = "tmp_${varCounter++}"
-            cseSubtrees[it] = varName
             varName
         }
 
@@ -89,6 +96,46 @@ object EmbeddedCGenerator {
             sourceCode = srcBuilder.toString(),
             arduinoSnippet = arduinoBuilder.toString()
         )
+    }
+
+    private fun collectCompoundSubexprs(expr: MathExpr, counts: MutableMap<String, Int>, prec: CPrecision) {
+        when (expr) {
+            is MathExpr.Number, is MathExpr.Symbol, is MathExpr.Constant, is MathExpr.Otherwise -> return
+            is MathExpr.Unary -> {
+                collectCompoundSubexprs(expr.value, counts, prec)
+                val s = emitRawCExpr(expr, prec)
+                counts[s] = (counts[s] ?: 0) + 1
+            }
+            is MathExpr.Binary -> {
+                collectCompoundSubexprs(expr.left, counts, prec)
+                collectCompoundSubexprs(expr.right, counts, prec)
+                val s = emitRawCExpr(expr, prec)
+                counts[s] = (counts[s] ?: 0) + 1
+            }
+            is MathExpr.Call -> {
+                expr.arguments.forEach { collectCompoundSubexprs(it, counts, prec) }
+                val s = emitRawCExpr(expr, prec)
+                counts[s] = (counts[s] ?: 0) + 1
+            }
+            is MathExpr.Builtin -> {
+                expr.arguments.forEach { collectCompoundSubexprs(it, counts, prec) }
+                val s = emitRawCExpr(expr, prec)
+                counts[s] = (counts[s] ?: 0) + 1
+            }
+            is MathExpr.Relational -> {
+                collectCompoundSubexprs(expr.left, counts, prec)
+                collectCompoundSubexprs(expr.right, counts, prec)
+                val s = emitRawCExpr(expr, prec)
+                counts[s] = (counts[s] ?: 0) + 1
+            }
+            else -> {}
+        }
+    }
+
+    private fun emitRawCExpr(expr: MathExpr, prec: CPrecision): String {
+        val dummyCse = linkedMapOf<String, String>()
+        val dummyRaw = mutableMapOf<String, String>()
+        return emitCExpr(expr, prec, dummyCse, emptySet(), dummyRaw) { "" }
     }
 
     /**
@@ -218,14 +265,27 @@ object EmbeddedCGenerator {
         expr: MathExpr,
         prec: CPrecision,
         cse: MutableMap<String, String>,
+        repeated: Set<String>,
+        rawToTemp: MutableMap<String, String>,
         allocateTemp: (String) -> String
     ): String {
+        if (repeated.isNotEmpty()) {
+            val raw = emitRawCExpr(expr, prec)
+            if (raw in repeated) {
+                rawToTemp[raw]?.let { return it }
+                val tempName = allocateTemp(raw)
+                rawToTemp[raw] = tempName
+                val rendered = emitCExpr(expr, prec, cse, emptySet(), rawToTemp, allocateTemp)
+                cse[rendered] = tempName
+                return tempName
+            }
+        }
         val sfx = prec.suffix
         val fn = prec.mathPrefix
 
         return when (expr) {
             is MathExpr.Number -> "${expr.value}$sfx"
-            is MathExpr.Symbol -> expr.name
+            is MathExpr.Symbol -> sanitizeCIdent(expr.name)
             is MathExpr.Constant -> when (expr) {
                 MathExpr.Constant.PI -> "3.14159265358979323846$sfx"
                 MathExpr.Constant.E -> "2.71828182845904523536$sfx"
@@ -233,12 +293,12 @@ object EmbeddedCGenerator {
                 MathExpr.Constant.I -> "0.0$sfx"
             }
             is MathExpr.Unary -> {
-                val inner = emitCExpr(expr.value, prec, cse, allocateTemp)
+                val inner = emitCExpr(expr.value, prec, cse, repeated, rawToTemp, allocateTemp)
                 if (expr.negative) "(-$inner)" else "(+$inner)"
             }
             is MathExpr.Binary -> {
-                val l = emitCExpr(expr.left, prec, cse, allocateTemp)
-                val r = emitCExpr(expr.right, prec, cse, allocateTemp)
+                val l = emitCExpr(expr.left, prec, cse, repeated, rawToTemp, allocateTemp)
+                val r = emitCExpr(expr.right, prec, cse, repeated, rawToTemp, allocateTemp)
                 when (expr.op) {
                     MathExpr.Op.ADD -> "($l + $r)"
                     MathExpr.Op.SUBTRACT -> "($l - $r)"
@@ -249,7 +309,8 @@ object EmbeddedCGenerator {
                 }
             }
             is MathExpr.Call -> {
-                val inner = if (expr.arguments.isNotEmpty()) emitCExpr(expr.arguments[0], prec, cse, allocateTemp) else "0.0$sfx"
+                val argList = expr.arguments.map { emitCExpr(it, prec, cse, repeated, rawToTemp, allocateTemp) }
+                val inner = argList.firstOrNull() ?: "0.0$sfx"
                 when (expr.function.lowercase(Locale.US)) {
                     "sin" -> "sin$fn($inner)"
                     "cos" -> "cos$fn($inner)"
@@ -257,6 +318,7 @@ object EmbeddedCGenerator {
                     "asin", "arcsin" -> "asin$fn($inner)"
                     "acos", "arccos" -> "acos$fn($inner)"
                     "atan", "arctan" -> "atan$fn($inner)"
+                    "atan2" -> if (argList.size >= 2) "atan2$fn(${argList[0]}, ${argList[1]})" else "atan$fn($inner)"
                     "sinh" -> "sinh$fn($inner)"
                     "cosh" -> "cosh$fn($inner)"
                     "tanh" -> "tanh$fn($inner)"
@@ -264,11 +326,14 @@ object EmbeddedCGenerator {
                     "ln", "log" -> "log$fn($inner)"
                     "sqrt" -> "sqrt$fn($inner)"
                     "abs" -> "fabs$fn($inner)"
-                    else -> "${expr.function}$fn($inner)"
+                    else -> {
+                        val sanitizedFn = sanitizeCIdent(expr.function)
+                        if (argList.size == 1) "$sanitizedFn$fn($inner)" else "$sanitizedFn(${argList.joinToString(", ")})"
+                    }
                 }
             }
             is MathExpr.Builtin -> {
-                val inner = if (expr.arguments.isNotEmpty()) emitCExpr(expr.arguments[0], prec, cse, allocateTemp) else "0.0$sfx"
+                val inner = if (expr.arguments.isNotEmpty()) emitCExpr(expr.arguments[0], prec, cse, repeated, rawToTemp, allocateTemp) else "0.0$sfx"
                 when (expr.function) {
                     MathExpr.Function.SIN -> "sin$fn($inner)"
                     MathExpr.Function.COS -> "cos$fn($inner)"
@@ -292,8 +357,8 @@ object EmbeddedCGenerator {
                 }
             }
             is MathExpr.Phasor -> {
-                val mag = emitCExpr(expr.magnitude, prec, cse, allocateTemp)
-                val ang = emitCExpr(expr.angleDegrees, prec, cse, allocateTemp)
+                val mag = emitCExpr(expr.magnitude, prec, cse, repeated, rawToTemp, allocateTemp)
+                val ang = emitCExpr(expr.angleDegrees, prec, cse, repeated, rawToTemp, allocateTemp)
                 "($mag * cos$fn($ang * (3.14159265358979323846$sfx / 180.0$sfx)))"
             }
             is MathExpr.Integral,
@@ -304,30 +369,32 @@ object EmbeddedCGenerator {
             is MathExpr.LaplaceTransform,
             is MathExpr.InverseLaplaceTransform,
             is MathExpr.ZTransform,
+        is MathExpr.InverseZTransform,
             is MathExpr.Gradient,
             is MathExpr.Divergence,
             is MathExpr.Curl -> "0.0$sfx"
-            is MathExpr.TaylorSeries -> emitCExpr(expr.body, prec, cse, allocateTemp)
+            is MathExpr.TaylorSeries -> emitCExpr(expr.body, prec, cse, repeated, rawToTemp, allocateTemp)
             is MathExpr.Relational -> {
-                val l = emitCExpr(expr.left, prec, cse, allocateTemp)
-                val r = emitCExpr(expr.right, prec, cse, allocateTemp)
+                val l = emitCExpr(expr.left, prec, cse, repeated, rawToTemp, allocateTemp)
+                val r = emitCExpr(expr.right, prec, cse, repeated, rawToTemp, allocateTemp)
                 "($l ${expr.op.syntax} $r)"
             }
             is MathExpr.Otherwise -> "1"
             is MathExpr.Piecewise -> {
-                if (expr.branches.isEmpty()) emitCExpr(expr.defaultExpr, prec, cse, allocateTemp)
+                if (expr.branches.isEmpty()) emitCExpr(expr.defaultExpr, prec, cse, repeated, rawToTemp, allocateTemp)
                 else {
-                    val firstBranch = expr.branches[0]
-                    val cond = emitCExpr(firstBranch.condition, prec, cse, allocateTemp)
-                    val valE = emitCExpr(firstBranch.value, prec, cse, allocateTemp)
-                    val defE = emitCExpr(expr.defaultExpr, prec, cse, allocateTemp)
-                    "($cond ? $valE : $defE)"
+                    val defaultStr = emitCExpr(expr.defaultExpr, prec, cse, repeated, rawToTemp, allocateTemp)
+                    expr.branches.foldRight(defaultStr) { branch, acc ->
+                        val cond = emitCExpr(branch.condition, prec, cse, repeated, rawToTemp, allocateTemp)
+                        val valE = emitCExpr(branch.value, prec, cse, repeated, rawToTemp, allocateTemp)
+                        "($cond ? $valE : $acc)"
+                    }
                 }
             }
             is MathExpr.DiscreteSequence -> {
-                if (expr.elements.isNotEmpty()) emitCExpr(expr.elements[0], prec, cse, allocateTemp) else "0.0$sfx"
+                if (expr.elements.isNotEmpty()) emitCExpr(expr.elements[0], prec, cse, repeated, rawToTemp, allocateTemp) else "0.0$sfx"
             }
-            is MathExpr.IndexedSequence -> "${expr.name}[(int)(${emitCExpr(expr.index, prec, cse, allocateTemp)})]"
+            is MathExpr.IndexedSequence -> "${expr.name}[(int)(${emitCExpr(expr.index, prec, cse, repeated, rawToTemp, allocateTemp)})]"
             is MathExpr.DiscreteConvolution,
             is MathExpr.CircularConvolution,
             is MathExpr.DiscreteFourierTransform -> "0.0$sfx"

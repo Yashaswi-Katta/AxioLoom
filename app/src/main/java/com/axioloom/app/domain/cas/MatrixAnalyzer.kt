@@ -1,5 +1,6 @@
 package com.axioloom.app.domain.cas
 
+import com.axioloom.app.domain.model.BindingSnapshot
 import com.axioloom.app.domain.model.MathExpr
 import com.axioloom.app.domain.model.SymjaCompiler
 
@@ -30,9 +31,12 @@ data class MatrixAnalysisResult(
  */
 class MatrixAnalyzer(private val cas: OfflineCasEngine) {
 
-    suspend fun analyzeMatrix(matrixExpr: MathExpr.Matrix): MatrixAnalysisResult {
-        val symjaCmd = SymjaCompiler.compile(com.axioloom.app.domain.model.MathIntent.EvaluationQuery(matrixExpr)).command
-        return analyzeSymjaMatrix(symjaCmd, matrixExpr.rows.size, matrixExpr.rows.firstOrNull()?.size ?: 0)
+    suspend fun analyzeMatrix(
+        matrixExpr: MathExpr.Matrix,
+        bindings: BindingSnapshot = BindingSnapshot()
+    ): MatrixAnalysisResult {
+        val compiled = SymjaCompiler.compile(com.axioloom.app.domain.model.MathIntent.EvaluationQuery(matrixExpr), bindings)
+        return analyzeSymjaMatrix(compiled.command, matrixExpr.rows.size, matrixExpr.rows.firstOrNull()?.size ?: 0, compiled.latexAliases)
     }
 
     suspend fun analyzeMatrix(rows: List<List<Double>>): MatrixAnalysisResult {
@@ -43,8 +47,13 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
         return analyzeSymjaMatrix(symjaCmd, rows.size, rows.first().size)
     }
 
-    suspend fun analyzeSymjaMatrix(symjaMatrix: String, numRows: Int, numCols: Int): MatrixAnalysisResult {
-        val matrixLatex = cas.evalCommandToLatex(symjaMatrix)
+    suspend fun analyzeSymjaMatrix(
+        symjaMatrix: String,
+        numRows: Int,
+        numCols: Int,
+        aliases: Map<String, String> = emptyMap()
+    ): MatrixAnalysisResult {
+        val matrixLatex = cas.evalCommandToLatex(symjaMatrix, aliases)
         val isSquare = numRows == numCols && numRows > 0
         val dimension = numRows
 
@@ -71,12 +80,14 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
             )
         }
 
-        val detLatex = cas.evalCommandToLatex("Det($symjaMatrix)")
-        val trLatex = cas.evalCommandToLatex("Tr($symjaMatrix)")
+        val detLatex = cas.evalCommandToLatex("Det($symjaMatrix)", aliases)
+        val trLatex = cas.evalCommandToLatex("Tr($symjaMatrix)", aliases)
 
         // 1. Characteristic Polynomial p(\lambda) = Det(A - \lambda * I)
         val polyRaw = cas.evalRaw("Expand(CharacteristicPolynomial($symjaMatrix, lambda))")
-        val polyLatex = formatCharacteristicPolynomial(polyRaw)
+        val coeffRaw = cas.evalRaw("CoefficientList($polyRaw, lambda)")
+        val coeffs = parseSymjaList(coeffRaw)
+        val polyLatex = formatCharacteristicPolynomialFromCoeffs(coeffs)
 
         // 2. Eigenvalues
         val eigRaw = cas.evalRaw("Eigenvalues($symjaMatrix)")
@@ -101,9 +112,9 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
             val pDet = cas.evalRaw("Det($pCmd)")
             if (pDet != "0") {
                 isDiag = true
-                modalP = cas.evalCommandToLatex(pCmd)
-                diagD = cas.evalCommandToLatex("DiagonalMatrix($eigRaw)")
-                invP = cas.evalCommandToLatex("Inverse($pCmd)")
+                modalP = cas.evalCommandToLatex(pCmd, aliases)
+                diagD = cas.evalCommandToLatex("DiagonalMatrix($eigRaw)", aliases)
+                invP = cas.evalCommandToLatex("Inverse($pCmd)", aliases)
             }
         }
 
@@ -145,20 +156,36 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
         )
     }
 
-    private fun formatCharacteristicPolynomial(raw: String): String {
-        // Raw Symja format often looks like "10-7*lambda+lambda^2" or "10.0-7.0*lambda+lambda^2"
-        // Convert to descending order: "\lambda^2 - 7\lambda + 10"
-        val clean = raw.replace(" ", "")
-        val hasLambda2 = clean.contains("lambda^2")
-        val has7Lambda = clean.contains("7*lambda") || clean.contains("7.0*lambda")
-        val has10 = clean.contains("10") || clean.contains("10.0")
-        if (hasLambda2 && has7Lambda && has10) {
-            return "\\lambda^2 - 7\\lambda + 10"
+    private fun formatCharacteristicPolynomialFromCoeffs(coeffs: List<String>): String {
+        if (coeffs.isEmpty()) return "\\lambda"
+        val parts = mutableListOf<String>()
+        for (k in coeffs.indices.reversed()) {
+            val c = coeffs[k].trim()
+            if (c == "0" || c == "0.0") continue
+            val cVal = c.toDoubleOrNull() ?: 1.0
+            val varTerm = when (k) {
+                0 -> ""
+                1 -> "\\lambda"
+                else -> "\\lambda^$k"
+            }
+            val cClean = if (c.endsWith(".0")) c.substringBefore(".0") else c
+            if (parts.isEmpty()) {
+                if (varTerm.isEmpty()) parts += cClean
+                else if (cClean == "1") parts += varTerm
+                else if (cClean == "-1") parts += "-$varTerm"
+                else parts += "$cClean$varTerm"
+            } else {
+                if (cVal > 0) {
+                    val coeffStr = if (varTerm.isEmpty()) cClean else if (cClean == "1") "" else cClean
+                    parts += "+ $coeffStr$varTerm".trim()
+                } else {
+                    val absC = if (cClean.startsWith("-")) cClean.substring(1) else cClean
+                    val coeffStr = if (varTerm.isEmpty()) absC else if (absC == "1") "" else absC
+                    parts += "- $coeffStr$varTerm".trim()
+                }
+            }
         }
-        val poly = clean.replace(".0", "")
-            .replace("lambda", "\\lambda")
-            .replace("*", " ")
-        return poly
+        return if (parts.isNotEmpty()) parts.joinToString(" ") else "0"
     }
 
     private suspend fun verifyCayleyHamilton(
@@ -168,23 +195,126 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
         detLatex: String
     ): Triple<String, Boolean, String> {
         return try {
-            // Check if substituting A into polynomial gives zero matrix
-            // For 2x2: lambda^2 - tr*lambda + det => MatrixPower(A, 2) - tr*A + det*IdentityMatrix(2)
-            val subCmd = polyRaw
-                .replace("lambda^2", "MatrixPower($symjaMatrix, 2)")
-                .replace("lambda", symjaMatrix)
-            // Replace trailing constant c with c * IdentityMatrix(dimension)
-            val evalCmd = "Simplify($subCmd)"
-            val result = cas.evalRaw(evalCmd)
-            val isZero = result.contains("0") && !result.any { it in '1'..'9' }
+            val coeffRaw = cas.evalRaw("CoefficientList(Expand(CharacteristicPolynomial($symjaMatrix, lambda)), lambda)")
+            val coeffs = parseSymjaList(coeffRaw)
+            if (coeffs.isEmpty()) return Triple("p(A) = 0", false, "")
 
-            val chEq = "A^2 - 7 A + 10 I"
-            val chInv = if (detLatex != "0") "A^{-1} = \\frac{1}{10}(7 I - A)" else ""
+            val terms = mutableListOf<String>()
+            coeffs.forEachIndexed { k, cStr ->
+                val term = when (k) {
+                    0 -> "($cStr) * IdentityMatrix($dimension)"
+                    1 -> "($cStr) * ($symjaMatrix)"
+                    else -> "($cStr) * MatrixPower($symjaMatrix, $k)"
+                }
+                terms += term
+            }
+            val sumExpr = terms.joinToString(" + ")
+            val evalZero = cas.evalRaw("Simplify(Total(Flatten(Abs($sumExpr))))")
+            val isZero = evalZero == "0" || evalZero == "0.0"
 
-            Triple(chEq, true, chInv)
+            val eqParts = mutableListOf<String>()
+            for (k in coeffs.indices.reversed()) {
+                val c = coeffs[k].trim()
+                if (c == "0" || c == "0.0") continue
+                val cVal = c.toDoubleOrNull() ?: 1.0
+                val matSymbol = when (k) {
+                    0 -> "I"
+                    1 -> "A"
+                    else -> "A^$k"
+                }
+                if (eqParts.isEmpty()) {
+                    if (c == "1" || c == "1.0") eqParts += matSymbol
+                    else if (c == "-1" || c == "-1.0") eqParts += "-$matSymbol"
+                    else eqParts += "$c $matSymbol"
+                } else {
+                    if (cVal > 0) {
+                        val coeffStr = if (c == "1" || c == "1.0") "" else "$c "
+                        eqParts += "+ $coeffStr$matSymbol"
+                    } else {
+                        val absC = if (c.startsWith("-")) c.substring(1) else c
+                        val coeffStr = if (absC == "1" || absC == "1.0") "" else "$absC "
+                        eqParts += "- $coeffStr$matSymbol"
+                    }
+                }
+            }
+            val chEq = if (eqParts.isNotEmpty()) eqParts.joinToString(" ") else "p(A)"
+
+            val c0Str = coeffs.firstOrNull()?.trim() ?: "0"
+            val c0Val = c0Str.toDoubleOrNull()
+            val chInv = if (c0Val != null && c0Val != 0.0 && detLatex != "0") {
+                val invParts = mutableListOf<String>()
+                for (k in (1 until coeffs.size).reversed()) {
+                    val c = coeffs[k].trim()
+                    if (c == "0" || c == "0.0") continue
+                    val cVal = c.toDoubleOrNull() ?: 1.0
+                    val matSymbol = when (k - 1) {
+                        0 -> "I"
+                        1 -> "A"
+                        else -> "A^{${k - 1}}"
+                    }
+                    if (invParts.isEmpty()) {
+                        if (c == "1" || c == "1.0") invParts += matSymbol
+                        else if (c == "-1" || c == "-1.0") invParts += "-$matSymbol"
+                        else invParts += "$c $matSymbol"
+                    } else {
+                        if (cVal > 0) {
+                            val coeffStr = if (c == "1" || c == "1.0") "" else "$c "
+                            invParts += "+ $coeffStr$matSymbol"
+                        } else {
+                            val absC = if (c.startsWith("-")) c.substring(1) else c
+                            val coeffStr = if (absC == "1" || absC == "1.0") "" else "$absC "
+                            invParts += "- $coeffStr$matSymbol"
+                        }
+                    }
+                }
+                val inner = invParts.joinToString(" ")
+                when {
+                    c0Str == "1" || c0Str == "1.0" -> "A^{-1} = -($inner)"
+                    c0Str == "-1" || c0Str == "-1.0" -> "A^{-1} = $inner"
+                    c0Val < 0 -> {
+                        val absC0 = if (c0Str.startsWith("-")) c0Str.substring(1) else c0Str
+                        "A^{-1} = \\frac{1}{$absC0}($inner)"
+                    }
+                    else -> "A^{-1} = -\\frac{1}{$c0Str}($inner)"
+                }
+            } else ""
+
+            Triple(chEq, isZero, chInv)
         } catch (_: Exception) {
             Triple("p(A) = 0", false, "")
         }
+    }
+
+    fun splitTopLevelCommas(input: String): List<String> {
+        val result = mutableListOf<String>()
+        var depthParen = 0
+        var depthBrace = 0
+        var depthBracket = 0
+        val current = StringBuilder()
+        for (ch in input) {
+            when (ch) {
+                '(' -> depthParen++
+                ')' -> if (depthParen > 0) depthParen--
+                '{' -> depthBrace++
+                '}' -> if (depthBrace > 0) depthBrace--
+                '[' -> depthBracket++
+                ']' -> if (depthBracket > 0) depthBracket--
+                ',' -> {
+                    if (depthParen == 0 && depthBrace == 0 && depthBracket == 0) {
+                        val s = current.toString().trim()
+                        if (s.isNotEmpty()) result.add(s)
+                        current.clear()
+                        continue
+                    }
+                }
+            }
+            current.append(ch)
+        }
+        val remaining = current.toString().trim()
+        if (remaining.isNotEmpty()) {
+            result.add(remaining)
+        }
+        return result
     }
 
     private fun parseSymjaList(raw: String): List<String> {
@@ -192,7 +322,7 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
         if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return emptyList()
         val inner = trimmed.substring(1, trimmed.length - 1)
         if (inner.isBlank()) return emptyList()
-        return inner.split(",").map { it.trim() }
+        return splitTopLevelCommas(inner)
     }
 
     private fun parseSymjaNumericList(raw: String): List<Double> {
@@ -203,12 +333,12 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
         val trimmed = raw.trim()
         if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return emptyList()
         val inner = trimmed.substring(1, trimmed.length - 1)
-        val rows = mutableListOf<List<String>>()
-        val rowRegex = Regex("""\{([^}]+)\}""")
-        rowRegex.findAll(inner).forEach { match ->
-            val items = match.groupValues[1].split(",").map { it.trim() }
-            rows += items
+        val rowStrings = splitTopLevelCommas(inner)
+        return rowStrings.mapNotNull { rowStr ->
+            val rowTrimmed = rowStr.trim()
+            if (rowTrimmed.startsWith("{") && rowTrimmed.endsWith("}")) {
+                parseSymjaList(rowTrimmed)
+            } else null
         }
-        return rows
     }
 }

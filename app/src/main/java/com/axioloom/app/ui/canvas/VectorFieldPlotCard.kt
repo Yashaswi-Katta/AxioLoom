@@ -91,10 +91,11 @@ fun VectorFieldPlotCard(
     pExpr: MathExpr,
     qExpr: MathExpr,
     title: String = "F(x, y) = ⟨P, Q⟩",
+    boundValues: Map<String, Double> = emptyMap(),
     onClose: () -> Unit = {}
 ) {
-    val vectors = remember(pExpr, qExpr) {
-        FastPlotEvaluator.sampleVectorField(pExpr, qExpr, gridSize = 15)
+    val vectors = remember(pExpr, qExpr, boundValues) {
+        FastPlotEvaluator.sampleVectorField(pExpr, qExpr, gridSize = 15, bindings = boundValues)
     }
 
     val maxMag = remember(vectors) {
@@ -248,7 +249,7 @@ fun VectorFieldPlotCard(
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "max ||F|| = ${"%.2f".format(maxMag)}",
+                    text = "max ||F|| = ${String.format(java.util.Locale.US, "%.2f", maxMag)}",
                     color = Color(0xFFFFB300),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace

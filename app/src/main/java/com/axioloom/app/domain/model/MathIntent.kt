@@ -38,6 +38,9 @@ sealed interface MathExpr {
     data class ZTransform(val expr: MathExpr, val discreteVar: String = "n", val zVar: String = "z") : MathExpr {
         init { require(isIdentifier(discreteVar)); require(isIdentifier(zVar)) }
     }
+    data class InverseZTransform(val expr: MathExpr, val zVar: String = "z", val discreteVar: String = "n") : MathExpr {
+        init { require(isIdentifier(zVar)); require(isIdentifier(discreteVar)) }
+    }
     data class Gradient(val scalarField: MathExpr, val coords: List<String> = listOf("x", "y", "z")) : MathExpr {
         init { require(coords.isNotEmpty() && coords.all(::isIdentifier)) }
     }
@@ -144,6 +147,7 @@ fun MathExpr.references(bound: Set<String> = emptySet()): Set<SymbolKey> = when 
     is MathExpr.LaplaceTransform -> expr.references(bound + timeVar + freqVar)
     is MathExpr.InverseLaplaceTransform -> expr.references(bound + freqVar + timeVar)
     is MathExpr.ZTransform -> expr.references(bound + discreteVar + zVar)
+    is MathExpr.InverseZTransform -> expr.references(bound + zVar + discreteVar)
     is MathExpr.Gradient -> scalarField.references(bound + coords)
     is MathExpr.Divergence -> vectorField.references(bound + coords)
     is MathExpr.Curl -> vectorField.references(bound + coords)
@@ -219,6 +223,11 @@ object SymjaCompiler {
         CompiledExpression(command, aliases.toMap())
     }
 
+    fun encode(name: String): String {
+        if ('_' !in name) return name
+        return "inksub" + name.map { it.code.toString(16) }.joinToString("z")
+    }
+
     fun decode(text: String): String {
         val regex = Regex("ink(?:sub|fun)([0-9a-fA-Fz]+)")
         return regex.replace(text) { match ->
@@ -251,8 +260,25 @@ object SymjaCompiler {
             check(expanding.add(key)) { "Circular variable dependency" }
             try { return action() } finally { expanding.remove(key) }
         }
-        fun isMatrix(expr: MathExpr): Boolean =
-            expr is MathExpr.Matrix || (expr is MathExpr.Symbol && bindings.values[expr.name] is MathExpr.Matrix)
+        fun isMatrix(expr: MathExpr): Boolean = when (expr) {
+            is MathExpr.Matrix -> true
+            is MathExpr.Symbol -> {
+                val bound = bindings.values[expr.name]
+                bound != null && isMatrix(bound)
+            }
+            is MathExpr.Unary -> isMatrix(expr.value)
+            is MathExpr.Binary -> when (expr.op) {
+                MathExpr.Op.ADD, MathExpr.Op.SUBTRACT -> isMatrix(expr.left) || isMatrix(expr.right)
+                MathExpr.Op.MULTIPLY, MathExpr.Op.POWER -> isMatrix(expr.left) || isMatrix(expr.right)
+                else -> false
+            }
+            is MathExpr.Builtin -> expr.function in setOf(
+                MathExpr.Function.TRANSPOSE,
+                MathExpr.Function.INVERSE,
+                MathExpr.Function.RREF
+            )
+            else -> false
+        }
 
         fun renderOde(
             expr: MathExpr,
@@ -269,12 +295,30 @@ object SymjaCompiler {
                         render(expr, locals)
                     }
                 }
+                is MathExpr.Symbol -> {
+                    if (expr.name == depVar) depCall else (locals[expr.name] ?: symbol(expr.name))
+                }
                 is MathExpr.Binary -> {
                     "(${renderOde(expr.left, depVar, indepVar, depCall, locals)}${expr.op.syntax}${renderOde(expr.right, depVar, indepVar, depCall, locals)})"
                 }
                 is MathExpr.Unary -> {
                     if (expr.negative) "(-${renderOde(expr.value, depVar, indepVar, depCall, locals)})"
                     else "(+${renderOde(expr.value, depVar, indepVar, depCall, locals)})"
+                }
+                is MathExpr.Builtin -> {
+                    val renderedArgs = expr.arguments.map { renderOde(it, depVar, indepVar, depCall, locals) }
+                    "${expr.function.syntax}(${renderedArgs.joinToString(",")})"
+                }
+                is MathExpr.Call -> {
+                    val renderedArgs = expr.arguments.map { renderOde(it, depVar, indepVar, depCall, locals) }
+                    val definition = bindings.functions[expr.function]
+                    if (definition != null && definition.params.size == renderedArgs.size) {
+                        val inlinedLocals = definition.params.zip(renderedArgs).toMap()
+                        renderOde(definition.body, depVar, indepVar, depCall, inlinedLocals)
+                    } else {
+                        val sym = locals[expr.function] ?: symbol(expr.function)
+                        "$sym(${renderedArgs.joinToString(",")})"
+                    }
                 }
                 else -> render(expr, locals)
             }
@@ -318,7 +362,60 @@ object SymjaCompiler {
                 is MathExpr.Call -> {
                     val args = expr.arguments.map { r(it) }
                     val definition = bindings.functions[expr.function]
-                    if (definition == null) function(expr.function) + args.joinToString(",", "(", ")") else {
+                    if (definition == null) {
+                        when (expr.function) {
+                            "Product" -> {
+                                if (expr.arguments.size == 4) {
+                                    "Product(${r(expr.arguments[0])}, {${r(expr.arguments[1])}, ${r(expr.arguments[2])}, ${r(expr.arguments[3])}})"
+                                } else {
+                                    "Product(${args.joinToString(",")})"
+                                }
+                            }
+                            "fourier", "FourierTransform" -> {
+                                val tVar = if (expr.arguments.size >= 2 && expr.arguments[1] is MathExpr.Symbol) (expr.arguments[1] as MathExpr.Symbol).name else "t"
+                                val wVar = if (expr.arguments.size >= 3 && expr.arguments[2] is MathExpr.Symbol) (expr.arguments[2] as MathExpr.Symbol).name else "w"
+                                "FourierTransform(${r(expr.arguments[0])}, $tVar, $wVar)"
+                            }
+                            "mean" -> {
+                                if (expr.arguments.size == 1 && (expr.arguments[0] is MathExpr.DiscreteSequence || expr.arguments[0] is MathExpr.Matrix)) {
+                                    "N(Mean(${args[0]}))"
+                                } else {
+                                    "N(Mean({${args.joinToString(",")}}))"
+                                }
+                            }
+                            "stdev" -> {
+                                if (expr.arguments.size == 1 && (expr.arguments[0] is MathExpr.DiscreteSequence || expr.arguments[0] is MathExpr.Matrix)) {
+                                    "N(StandardDeviation(${args[0]}))"
+                                } else {
+                                    "N(StandardDeviation({${args.joinToString(",")}}))"
+                                }
+                            }
+                            "linreg" -> {
+                                if (expr.arguments.size == 1) {
+                                    "Fit(${args[0]},{1,x},x)"
+                                } else if (expr.arguments.size == 2) {
+                                    "Fit(Transpose({${args[0]},${args[1]}}),{1,x},x)"
+                                } else {
+                                    "Fit({${args.joinToString(",")}},{1,x},x)"
+                                }
+                            }
+                            "polyreg" -> {
+                                val deg = if (expr.arguments.size >= 2 && expr.arguments.last() is MathExpr.Number) {
+                                    (expr.arguments.last() as MathExpr.Number).value.toIntOrNull() ?: 2
+                                } else 2
+                                val basis = (0..deg).joinToString(",", "{", "}") { if (it == 0) "1" else if (it == 1) "x" else "x^$it" }
+                                val dataArgs = if (expr.arguments.size >= 2 && expr.arguments.last() is MathExpr.Number) expr.arguments.dropLast(1).map { r(it) } else args
+                                if (dataArgs.size == 1) {
+                                    "Fit(${dataArgs[0]},$basis,x)"
+                                } else if (dataArgs.size == 2) {
+                                    "Fit(Transpose({${dataArgs[0]},${dataArgs[1]}}),$basis,x)"
+                                } else {
+                                    "Fit({${dataArgs.joinToString(",")}},$basis,x)"
+                                }
+                            }
+                            else -> function(expr.function) + args.joinToString(",", "(", ")")
+                        }
+                    } else {
                         require(args.size == definition.params.size) { "${expr.function} expects ${definition.params.size} arguments" }
                         expand(SymbolKey(expr.function, SymbolKey.Kind.FUNCTION)) {
                             r(definition.body, definition.params.zip(args).toMap())
@@ -358,6 +455,11 @@ object SymjaCompiler {
                     val n = symbol(expr.discreteVar)
                     val z = symbol(expr.zVar)
                     "ZTransform(${r(expr.expr, locals + (expr.discreteVar to n))},$n,$z)"
+                }
+                is MathExpr.InverseZTransform -> {
+                    val z = symbol(expr.zVar)
+                    val n = symbol(expr.discreteVar)
+                    "InverseZTransform(${r(expr.expr, locals + (expr.zVar to z))},$z,$n)"
                 }
                 is MathExpr.Gradient -> {
                     val coordsList = expr.coords.joinToString(",", "{", "}") { symbol(it) }

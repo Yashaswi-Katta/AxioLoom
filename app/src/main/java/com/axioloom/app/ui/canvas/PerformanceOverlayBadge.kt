@@ -47,21 +47,21 @@ fun PerformanceOverlayBadge(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "Cluster ${"%.1f".format(telemetry.clusteringTimeMs)}ms",
+                    text = "Cluster ${String.format(java.util.Locale.US, "%.1f", telemetry.clusteringTimeMs)}ms",
                     color = Color(0xFFADB5BD),
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
                 )
                 Text("·", color = Color(0xFF6B7280), fontSize = 10.sp)
                 Text(
-                    text = "HMER ${"%.0f".format(telemetry.hmerInferenceTimeMs)}ms",
+                    text = "HMER ${String.format(java.util.Locale.US, "%.0f", telemetry.hmerInferenceTimeMs)}ms",
                     color = Color(0xFFFFD54F),
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
                 )
                 Text("·", color = Color(0xFF6B7280), fontSize = 10.sp)
                 Text(
-                    text = "CAS ${"%.1f".format(telemetry.casEvalTimeMs)}ms",
+                    text = "CAS ${String.format(java.util.Locale.US, "%.1f", telemetry.casEvalTimeMs)}ms",
                     color = Color(0xFFFFB300),
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
@@ -87,19 +87,19 @@ fun PerformanceOverlayBadge(
                 Spacer(Modifier.height(4.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Spatial Clustering:", color = Color(0xFFADB5BD), fontSize = 11.sp)
-                    Text("${"%.2f".format(telemetry.clusteringTimeMs)} ms", color = Color(0xFFF4F5F7), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    Text("${String.format(java.util.Locale.US, "%.2f", telemetry.clusteringTimeMs)} ms", color = Color(0xFFF4F5F7), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Bitmap Rasterization:", color = Color(0xFFADB5BD), fontSize = 11.sp)
-                    Text("${"%.2f".format(telemetry.rasterTimeMs)} ms", color = Color(0xFFF4F5F7), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    Text("${String.format(java.util.Locale.US, "%.2f", telemetry.rasterTimeMs)} ms", color = Color(0xFFF4F5F7), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("HMER Beam Inference:", color = Color(0xFFADB5BD), fontSize = 11.sp)
-                    Text("${"%.2f".format(telemetry.hmerInferenceTimeMs)} ms", color = Color(0xFFFFD54F), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    Text("${String.format(java.util.Locale.US, "%.2f", telemetry.hmerInferenceTimeMs)} ms", color = Color(0xFFFFD54F), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Transpile + Symja CAS:", color = Color(0xFFADB5BD), fontSize = 11.sp)
-                    Text("${"%.2f".format(telemetry.casEvalTimeMs)} ms", color = Color(0xFFFFB300), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    Text("${String.format(java.util.Locale.US, "%.2f", telemetry.casEvalTimeMs)} ms", color = Color(0xFFFFB300), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("JVM Heap Allocated:", color = Color(0xFFADB5BD), fontSize = 11.sp)

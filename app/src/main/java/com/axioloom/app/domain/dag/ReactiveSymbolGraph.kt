@@ -27,7 +27,21 @@ data class ReactiveGraphSnapshot(
     /** For each block, the unique definition blocks whose symbols it references. */
     val dependencies: Map<UUID, Set<UUID>> = emptyMap(),
     val cyclicBlocks: Set<UUID> = emptySet()
-)
+) {
+    fun toBindingSnapshot(): BindingSnapshot {
+        val values = mutableMapOf<String, MathExpr>()
+        val funcs = mutableMapOf<String, MathIntent.FunctionDef>()
+        blocks.values.forEach { b ->
+            val intent = b.intent
+            if (intent is MathIntent.Assignment) {
+                values[intent.variableName] = intent.rhs
+            } else if (intent is MathIntent.FunctionDef) {
+                funcs[intent.funcName] = intent
+            }
+        }
+        return BindingSnapshot(values, funcs)
+    }
+}
 
 /** Serialized transactional graph updates; HMER is never rerun by this class. */
 class ReactiveSymbolGraph(

@@ -7,6 +7,7 @@ import com.axioloom.app.domain.model.InkPoint
 import com.axioloom.app.domain.model.MathExpr
 import com.axioloom.app.domain.model.StrokeGeometry
 import com.axioloom.app.domain.model.TimedStroke
+import com.axioloom.app.domain.model.isIdentifier
 import com.axioloom.app.domain.parser.LatexToSymjaTranspiler
 import java.util.UUID
 import kotlin.math.*
@@ -65,8 +66,12 @@ object SchematicStrokeRecognizer {
             return RecognizedSchematic(emptyList(), emptyList(), emptyMap(), emptyMap())
         }
 
-        // 1. Identify multi-stroke ground symbols (3 parallel decreasing bars + stem)
-        val remainingStrokes = strokes.toMutableList()
+        // 1. Exclude strokes belonging to recognized equation value labels
+        val eqStrokeIds = equationBlocks.filter { it.recognizedLatex?.isNotBlank() == true }.flatMap { it.strokeIds }.toSet()
+        val schematicStrokes = strokes.filter { it.id !in eqStrokeIds }
+
+        // 2. Identify multi-stroke ground symbols (3 parallel decreasing bars + stem)
+        val remainingStrokes = schematicStrokes.toMutableList()
         val recognizedComponents = mutableListOf<RecognizedComponent>()
 
         val grounds = extractGroundSymbols(remainingStrokes)
@@ -284,7 +289,7 @@ object SchematicStrokeRecognizer {
         }
 
         // Inductor: 3 to 8 consecutive loops/cusps with significant path length
-        if (pathDensity in 1.4..3.2 && peakCount in 3..8 && lateralOffsets.count { it > 0 } >= pts.size * 0.6) {
+        if (pathDensity in 1.4..3.2 && peakCount in 3..8 && kotlin.math.max(lateralOffsets.count { it > 0 }, lateralOffsets.count { it < 0 }) >= pts.size * 0.6) {
             val t1 = SchematicTerminal(stroke.id, 0, pStart)
             val t2 = SchematicTerminal(stroke.id, 1, pEnd)
             return RecognizedComponent(
@@ -417,10 +422,12 @@ object SchematicStrokeRecognizer {
             val (idx1, s1) = horizontalStrokes[i]
 
             for (j in 0 until horizontalStrokes.size) {
+                if (horizontalStrokes[i].first in used) break
                 if (i == j || horizontalStrokes[j].first in used) continue
                 val (idx2, s2) = horizontalStrokes[j]
 
                 for (k in 0 until horizontalStrokes.size) {
+                    if (horizontalStrokes[i].first in used) break
                     if (k == i || k == j || horizontalStrokes[k].first in used) continue
                     val (idx3, s3) = horizontalStrokes[k]
 
@@ -431,7 +438,12 @@ object SchematicStrokeRecognizer {
                     val bBot = triplet[2].second.geometry.bounds
 
                     // Check strictly decreasing widths: bTop.width > bMid.width > bBot.width
-                    if (bTop.width > bMid.width * 1.05f && bMid.width > bBot.width * 1.05f) {
+                    val vGap1 = bMid.top - bTop.bottom
+                    val vGap2 = bBot.top - bMid.bottom
+                    val maxGap = bTop.width * 0.8f
+                    val validGap = vGap1 >= -4f && vGap1 <= maxGap && vGap2 >= -4f && vGap2 <= maxGap
+
+                    if (validGap && bTop.width > bMid.width * 1.05f && bMid.width > bBot.width * 1.05f) {
                         // Check horizontal alignment of centers
                         val cTopX = bTop.left + bTop.width / 2f
                         val cMidX = bMid.left + bMid.width / 2f
@@ -482,6 +494,7 @@ object SchematicStrokeRecognizer {
         components: List<RecognizedComponent>,
         blocks: List<EquationBlock>
     ) {
+        val usedBlockIds = mutableSetOf<UUID>()
         for (comp in components) {
             if (comp.type == SchematicComponentType.WIRE || comp.type == SchematicComponentType.GROUND) continue
 
@@ -494,6 +507,7 @@ object SchematicStrokeRecognizer {
             var nearestDist = Float.MAX_VALUE
 
             for (block in blocks) {
+                if (block.id in usedBlockIds) continue
                 val blockCenter = Offset(
                     block.bounds.left + block.bounds.width / 2f,
                     block.bounds.top + block.bounds.height / 2f
@@ -507,6 +521,7 @@ object SchematicStrokeRecognizer {
             }
 
             if (nearestBlock != null) {
+                usedBlockIds.add(nearestBlock.id)
                 val latex = nearestBlock.recognizedLatex?.trim().orEmpty()
                 comp.label = latex
                 comp.valueExpr = parseSchematicValue(latex)
@@ -515,7 +530,8 @@ object SchematicStrokeRecognizer {
     }
 
     fun parseSchematicValue(raw: String): MathExpr {
-        val cleaned = raw.replace("=", "").replace("\\Omega", "").replace("V", "").replace("F", "").replace("H", "").trim()
+        var cleaned = raw.replace("=", "").trim()
+        cleaned = cleaned.replace(Regex("(?<=[0-9GMkmunp])\\s*(?:\\\\Omega|[VFH])\\s*$"), "").trim()
         val expanded = com.axioloom.app.domain.model.EngineeringConstants.expandSiSuffixes(cleaned)
         return try {
             val intent = parser.transpile(expanded).intent
@@ -526,7 +542,9 @@ object SchematicStrokeRecognizer {
             }
         } catch (_: Exception) {
             val d = expanded.toDoubleOrNull()
-            if (d != null) MathExpr.Number(expanded) else MathExpr.Symbol(expanded)
+            if (d != null) MathExpr.Number(expanded)
+            else if (isIdentifier(expanded)) MathExpr.Symbol(expanded)
+            else MathExpr.Number("1")
         }
     }
 

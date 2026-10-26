@@ -38,9 +38,9 @@ fun KarnaughMapCard(
     initialDontCares: Set<Int> = emptySet(),
     modifier: Modifier = Modifier
 ) {
-    var numVars by remember { mutableIntStateOf(initialNumVars) }
-    var minterms by remember { mutableStateOf(initialMinterms) }
-    var dontCares by remember { mutableStateOf(initialDontCares) }
+    var numVars by remember(initialNumVars) { mutableIntStateOf(initialNumVars) }
+    var minterms by remember(initialMinterms) { mutableStateOf(initialMinterms) }
+    var dontCares by remember(initialDontCares) { mutableStateOf(initialDontCares) }
 
     val minimizationResult by remember(numVars, minterms, dontCares) {
         derivedStateOf {
