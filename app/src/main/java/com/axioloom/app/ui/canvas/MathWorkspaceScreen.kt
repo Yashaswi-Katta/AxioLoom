@@ -1070,62 +1070,29 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
         }
 
         // -----------------------------------------------------------------
-        // 4. Umbra Diagnostic & System Watermark Footer Bar (Section 6)
+        // 4. Umbra Diagnostic Fault Notification Bar
         // -----------------------------------------------------------------
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(32.dp)
-                .background(UmbraColors.BgCanvas)
-                .border(width = 1.dp, color = UmbraColors.BorderHairline)
-                .padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Left: Nominal Live Telemetry or Fault Message
+        if (!warmupError.isNullOrBlank() || !inputError.isNullOrBlank()) {
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(32.dp)
+                    .background(UmbraColors.BgCanvas)
+                    .border(width = 1.dp, color = UmbraColors.BorderHairline)
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (!warmupError.isNullOrBlank() || !inputError.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .background(UmbraColors.AccentDanger, shape = CircleShape)
-                    )
-                    Text(
-                        text = listOfNotNull(warmupError, inputError).joinToString(" · "),
-                        color = UmbraColors.AccentDanger,
-                        fontSize = 11.sp,
-                        maxLines = 1
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .background(UmbraColors.AccentGreen, shape = CircleShape)
-                    )
-                    Text(
-                        text = "ENGINEERING CORE READY",
-                        color = UmbraColors.TextMuted,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        letterSpacing = 0.14.sp
-                    )
-                }
-            }
-
-            // Right: System Watermark
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(UmbraColors.AccentDanger, shape = CircleShape)
+                )
                 Text(
-                    text = "AXIOLOOM ──",
-                    color = UmbraColors.TextMuted,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    letterSpacing = 0.22.sp
+                    text = listOfNotNull(warmupError, inputError).joinToString(" · "),
+                    color = UmbraColors.AccentDanger,
+                    fontSize = 11.sp,
+                    maxLines = 1
                 )
             }
         }

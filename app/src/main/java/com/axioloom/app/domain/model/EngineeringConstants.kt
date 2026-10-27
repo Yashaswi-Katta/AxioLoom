@@ -14,8 +14,8 @@ object EngineeringConstants {
     fun expandSiSuffixes(latex: String): String {
         var clean = latex
         // Strip common engineering unit symbols that don't affect scalar CAS math
-        clean = clean.replace(Regex("\\\\(?:text|mathrm)\\s*\\{\\s*(?:Hz|hz|F|H|s|sec|V|v|A|a|W|w|Ohm|ohm|\\\\Omega)\\s*}"), "")
-            .replace(Regex("(?<=[0-9])\\s*(?:Hz|hz|\\\\Omega)\\b"), "")
+        clean = clean.replace(Regex("""\\(?:text|mathrm)\s*\{\s*(?:Hz|hz|F|H|s|sec|V|v|A|a|W|w|Ohm|ohm|\\Omega)\s*\}"""), "")
+            .replace(Regex("""(?<=[0-9])\s*(?:Hz|hz|\\Omega)\b"""), "")
 
         // Map SI multipliers:
         // G -> 10^9
@@ -27,23 +27,23 @@ object EngineeringConstants {
         // p -> 10^-12
 
         // First handle \text{...} or \mathrm{...} wrapped prefixes
-        clean = clean.replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\(?:text|mathrm)\\s*\\{\\s*G\\s*}")) { "(${it.groupValues[1]} * 10^9)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\(?:text|mathrm)\\s*\\{\\s*M\\s*}")) { "(${it.groupValues[1]} * 10^6)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\(?:text|mathrm)\\s*\\{\\s*k\\s*}")) { "(${it.groupValues[1]} * 10^3)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\(?:text|mathrm)\\s*\\{\\s*m\\s*}")) { "(${it.groupValues[1]} * 10^-3)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\(?:text|mathrm)\\s*\\{\\s*u\\s*}")) { "(${it.groupValues[1]} * 10^-6)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\(?:text|mathrm)\\s*\\{\\s*n\\s*}")) { "(${it.groupValues[1]} * 10^-9)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\(?:text|mathrm)\\s*\\{\\s*p\\s*}")) { "(${it.groupValues[1]} * 10^-12)" }
+        clean = clean.replace(Regex("""([0-9]+(?:\.[0-9]+)?)\s*\\(?:text|mathrm)\s*\{\s*G\s*\}""")) { "(${it.groupValues[1]} * 10^9)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)\s*\\(?:text|mathrm)\s*\{\s*M\s*\}""")) { "(${it.groupValues[1]} * 10^6)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)\s*\\(?:text|mathrm)\s*\{\s*k\s*\}""")) { "(${it.groupValues[1]} * 10^3)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)\s*\\(?:text|mathrm)\s*\{\s*m\s*\}""")) { "(${it.groupValues[1]} * 10^-3)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)\s*\\(?:text|mathrm)\s*\{\s*u\s*\}""")) { "(${it.groupValues[1]} * 10^-6)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)\s*\\(?:text|mathrm)\s*\{\s*n\s*\}""")) { "(${it.groupValues[1]} * 10^-9)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)\s*\\(?:text|mathrm)\s*\{\s*p\s*\}""")) { "(${it.groupValues[1]} * 10^-12)" }
             // Handle \mu command directly: 10\mu
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)\\s*\\\\mu\\b")) { "(${it.groupValues[1]} * 10^-6)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)\s*\\mu\b""")) { "(${it.groupValues[1]} * 10^-6)" }
             // Handle bare SI characters immediately adjacent to numbers: e.g. 4.7k, 100m, 10u, 2.4G, 100n, 22p
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)G(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^9)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)M(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^6)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)k(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^3)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)m(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^-3)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)u(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^-6)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)n(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^-9)" }
-            .replace(Regex("([0-9]+(?:\\.[0-9]+)?)p(?![a-zA-Z0-9_\\(])")) { "(${it.groupValues[1]} * 10^-12)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)G(?![a-zA-Z0-9_\(])""")) { "(${it.groupValues[1]} * 10^9)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)M(?![a-zA-Z0-9_\(])""")) { "(${it.groupValues[1]} * 10^6)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)k(?![a-zA-Z0-9_\(])""")) { "(${it.groupValues[1]} * 10^3)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)m(?![a-zA-Z0-9_\(])""")) { "(${it.groupValues[1]} * 10^-3)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)u(?![a-zA-Z0-9_\(])""")) { "(${it.groupValues[1]} * 10^-6)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)n(?![a-zA-Z0-9_\(])""")) { "(${it.groupValues[1]} * 10^-9)" }
+            .replace(Regex("""([0-9]+(?:\.[0-9]+)?)p(?![a-zA-Z0-9_\(])""")) { "(${it.groupValues[1]} * 10^-12)" }
 
         return clean
     }

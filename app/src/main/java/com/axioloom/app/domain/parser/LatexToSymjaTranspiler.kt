@@ -20,7 +20,7 @@ class LatexToSymjaTranspiler {
         var clean = latex.trim()
         if (clean.startsWith("$$") && clean.endsWith("$$") && clean.length >= 4) clean = clean.substring(2, clean.length - 2)
         else if (clean.startsWith('$') && clean.endsWith('$') && clean.length >= 2) clean = clean.substring(1, clean.length - 1)
-        val kmapRegex = Regex("(?:\\\\operatorname\\s*\\{\\s*kmap\\s*}|\\bkmap\\b)", RegexOption.IGNORE_CASE)
+        val kmapRegex = Regex("""(?:\\operatorname\s*\{\s*kmap\s*\}|\bkmap\b)""", RegexOption.IGNORE_CASE)
         if (kmapRegex.containsMatchIn(clean)) {
             val kmapResult = KarnaughMinimizer.parseKmapCommand(clean)
             if (kmapResult != null) {
@@ -40,10 +40,10 @@ class LatexToSymjaTranspiler {
             .replace(Regex("\\\\(?:le|leq)(?![a-zA-Z])"), "<=")
             .replace(Regex("\\\\(?:ge|geq)(?![a-zA-Z])"), ">=")
             .replace(Regex("\\\\neq(?![a-zA-Z])"), "!=")
-            .replace(Regex("\\\\text\\s*\\{\\s*otherwise\\s*}|\\botherwise\\b"), "\\otherwise ")
-            .replace(Regex("\\\\text\\s*\\{\\s*if\\s*}|\\bif\\b"), " ")
+            .replace(Regex("""\\text\s*\{\s*otherwise\s*\}|\botherwise\b"""), "\\otherwise ")
+            .replace(Regex("""\\text\s*\{\s*if\s*\}|\bif\b"""), " ")
             .replace(Regex("\\\\parallel"), " || ")
-            .replace(Regex("\\\\(?:\\|)"), " || ")
+            .replace(Regex("""\\\|"""), " || ")
             .replace(Regex("""\\partial\b"""), "d")
                         .replace(Regex("""\\pm\b"""), "+")
             .replace(Regex("""\\mp\b"""), "-")
@@ -57,12 +57,12 @@ class LatexToSymjaTranspiler {
             .replace(Regex("""\\operatorname\s*\{\s*deg\s*\}\s*\(([^)]+)\)""")) { "((${it.groupValues[1]}) * 180 / \\pi)" }
             .replace(Regex("""\\operatorname\s*\{\s*rad\s*\}\s*\(([^)]+)\)""")) { "((${it.groupValues[1]}) * \\pi / 180)" }
             .replace(Regex("\\\\(?:vec|mathbf|boldsymbol|mathrm|text)\\s*\\{([^}]+)\\}")) { it.groupValues[1] }
-            .replace(Regex("\\\\mathrm\\s*\\{\\s*d\\s*}"), "d")
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*L\\s*}|L\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))")) { "\\ilaplace " }
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1)\\s*}|(?:\\{\\s*Z\\s*}|Z\\b)\\s*\\^\\s*(?:\\{\\s*-1\\s*}|-1))")) { "\\iztrans " }
+            .replace(Regex("""\\mathrm\s*\{\s*d\s*\}"""), "d")
+            .replace(Regex("""\\mathcal\s*(?:\{\s*L\s*\^\s*(?:\{\s*-1\s*\}|-1)\s*\}|(?:\{\s*L\s*\}|L\b)\s*\^\s*(?:\{\s*-1\s*\}|-1))""")) { "\\ilaplace " }
+            .replace(Regex("""\\mathcal\s*(?:\{\s*Z\s*\^\s*(?:\{\s*-1\s*\}|-1)\s*\}|(?:\{\s*Z\s*\}|Z\b)\s*\^\s*(?:\{\s*-1\s*\}|-1))""")) { "\\iztrans " }
             .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*}|L\\b)(?!\\s*\\^)")) { "\\laplace " }
             .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*}|Z\\b)(?!\\s*\\^)")) { "\\ztrans " }
-            .replace(Regex("\\\\operatorname\\s*\\{\\s*(sin|cos|tan|arcsin|arccos|arctan|asin|acos|atan|sinh|cosh|tanh|ln|log|exp|sqrt|det|transpose|inverse|eigenvalues|eig|eigenvectors|tr|trace|rank|rref|Re|re|Im|im|conj|conjugate|arg|laplace|ilaplace|ztrans|grad|div|curl|step|unitstep|delta|dirac|diracdelta|taylor|series|conv|cconv|dft|idft|linreg|polyreg|mean|stdev)\\s*}")) {
+            .replace(Regex("""\\operatorname\s*\{\s*(sin|cos|tan|arcsin|arccos|arctan|asin|acos|atan|sinh|cosh|tanh|ln|log|exp|sqrt|det|transpose|inverse|eigenvalues|eig|eigenvectors|tr|trace|rank|rref|Re|re|Im|im|conj|conjugate|arg|laplace|ilaplace|ztrans|grad|div|curl|step|unitstep|delta|dirac|diracdelta|taylor|series|conv|cconv|dft|idft|linreg|polyreg|mean|stdev)\s*\}""")) {
                 "\\" + (if (it.groupValues[1] == "div") "divergence" else it.groupValues[1])
             }
             .trim()
