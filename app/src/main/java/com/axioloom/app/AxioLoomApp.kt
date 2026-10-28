@@ -75,7 +75,12 @@ class AxioLoomApp : Application() {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e("AxioLoomApp", "FATAL CRASH on thread ${thread.name}: ${throwable.message}", throwable)
             recordCrash(this, throwable)
-            defaultHandler?.uncaughtException(thread, throwable)
+            if (defaultHandler != null) {
+                defaultHandler.uncaughtException(thread, throwable)
+            } else {
+                android.os.Process.killProcess(android.os.Process.myPid())
+                System.exit(10)
+            }
         }
     }
 }

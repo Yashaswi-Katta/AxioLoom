@@ -80,7 +80,7 @@ fun ParameterSliderPill(
     var sliderValue by remember(variableName, initialValue) {
         mutableFloatStateOf(initialValue.toFloat().coerceIn(rangeMin, rangeMax))
     }
-    var isPlaying by remember { mutableStateOf(false) }
+    var isPlaying by remember(variableName) { mutableStateOf(false) }
 
     androidx.compose.runtime.DisposableEffect(variableName) {
         onDispose {
@@ -89,7 +89,7 @@ fun ParameterSliderPill(
     }
 
     // 60fps Oscillating animation loop
-    LaunchedEffect(isPlaying, rangeMin, rangeMax) {
+    LaunchedEffect(variableName, isPlaying, rangeMin, rangeMax) {
         if (!isPlaying) return@LaunchedEffect
         var forward = true
         val speed = (rangeMax - rangeMin) / 120f // ~2 second sweep across range at 60fps

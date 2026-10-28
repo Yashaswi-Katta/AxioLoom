@@ -18,6 +18,8 @@ import com.axioloom.app.domain.circuit.MnaResult
 import com.axioloom.app.domain.circuit.SymbolicMnaSolver
 import com.axioloom.app.domain.circuit.RecognizedSchematic
 import com.axioloom.app.domain.model.MathExpr
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.axioloom.app.ui.AxioLoomViewModel
 import kotlinx.coroutines.launch
 
@@ -51,7 +53,7 @@ fun CircuitSolverSheet(
             try {
                 isSolving = true
                 errorMessage = null
-                val elements = solver.parseNetlist(netlistText)
+                val elements = withContext(Dispatchers.Default) { solver.parseNetlist(netlistText) }
                 if (elements.isEmpty()) {
                     errorMessage = "No valid circuit elements in netlist"
                     isSolving = false
@@ -59,7 +61,7 @@ fun CircuitSolverSheet(
                 }
                 val nA = portNodeA.toIntOrNull() ?: 2
                 val nB = portNodeB.toIntOrNull() ?: 0
-                val result = solver.solve(elements, theveninPort = nA to nB)
+                val result = withContext(Dispatchers.Default) { solver.solve(elements, theveninPort = nA to nB) }
                 mnaResult = result
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Failed to solve MNA circuit"

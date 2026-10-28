@@ -109,6 +109,44 @@ object SchematicStrokeRecognizer {
             }
         }
 
+        // Connect wire endpoints internally through the wire
+        for (comp in recognizedComponents) {
+            if (comp.type == SchematicComponentType.WIRE && comp.terminals.size >= 2) {
+                val idx1 = allTerminals.indexOf(comp.terminals[0])
+                val idx2 = allTerminals.indexOf(comp.terminals[1])
+                if (idx1 >= 0 && idx2 >= 0) {
+                    uf.union(idx1, idx2)
+                }
+            }
+        }
+
+        // Connect T-junctions: terminals that land on or near a wire stroke
+        for (comp in recognizedComponents) {
+            if (comp.type == SchematicComponentType.WIRE && comp.terminals.isNotEmpty()) {
+                val wireTerminalIdx = allTerminals.indexOf(comp.terminals[0])
+                if (wireTerminalIdx < 0) continue
+                for (st in comp.strokes) {
+                    val pts = st.geometry.points
+                    for (tIdx in 0 until allTerminals.size) {
+                        val term = allTerminals[tIdx]
+                        if (term.componentId == comp.id) continue
+                        var nearWire = false
+                        for (pIdx in 0 until pts.size - 1) {
+                            val a = Offset(pts[pIdx].x, pts[pIdx].y)
+                            val b = Offset(pts[pIdx + 1].x, pts[pIdx + 1].y)
+                            if (distToSegment(term.position, a, b) <= snapRadiusPx) {
+                                nearWire = true
+                                break
+                            }
+                        }
+                        if (nearWire) {
+                            uf.union(tIdx, wireTerminalIdx)
+                        }
+                    }
+                }
+            }
+        }
+
         // 6. Assign electrical node numbers (Ground = 0)
         val groundRootIndices = mutableSetOf<Int>()
         for (comp in recognizedComponents) {
@@ -358,11 +396,17 @@ object SchematicStrokeRecognizer {
                     // Distance between plate centers
                     val c1 = Offset((p1s.x + p1e.x) / 2f, (p1s.y + p1e.y) / 2f)
                     val c2 = Offset((p2s.x + p2e.x) / 2f, (p2s.y + p2e.y) / 2f)
-                    val plateDist = hypot(c2.x - c1.x, c2.y - c1.y)
                     val avgLen = (len1 + len2) / 2.0
 
-                    // Gap should be 0.15 to 0.7 times plate length
-                    if (plateDist in (0.15 * avgLen)..(0.85 * avgLen)) {
+                    val plateDx = (p1e.x - p1s.x) / max(d1.toFloat(), 1e-4f)
+                    val plateDy = (p1e.y - p1s.y) / max(d1.toFloat(), 1e-4f)
+                    val centerDx = c2.x - c1.x
+                    val centerDy = c2.y - c1.y
+                    val parallelDisp = abs(centerDx * plateDx + centerDy * plateDy)
+                    val perpDisp = abs(-centerDx * plateDy + centerDy * plateDx)
+
+                    // Plates must have perpendicular separation (side-by-side gap), not collinear displacement
+                    if (perpDisp in (0.15 * avgLen)..(0.85 * avgLen) && parallelDisp <= 0.45 * avgLen) {
                         usedIndices.add(i)
                         usedIndices.add(j)
 
@@ -582,5 +626,14 @@ object SchematicStrokeRecognizer {
                 rank[rootI]++
             }
         }
+    }
+
+    private fun distToSegment(p: Offset, a: Offset, b: Offset): Float {
+        val l2 = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)
+        if (l2 < 1e-4f) return hypot(p.x - a.x, p.y - a.y)
+        val t = (((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2).coerceIn(0f, 1f)
+        val projX = a.x + t * (b.x - a.x)
+        val projY = a.y + t * (b.y - a.y)
+        return hypot(p.x - projX, p.y - projY)
     }
 }

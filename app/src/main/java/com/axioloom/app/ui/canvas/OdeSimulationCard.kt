@@ -53,7 +53,10 @@ fun OdeSimulationCard(
                 OdeNumericalSimulator.nonLinearPendulum(damping = paramSlider.toDouble() * 0.1, theta0 = initialPos.toDouble() * 2.0)
             }
             OdeSystemPreset.LORENZ -> {
-                OdeNumericalSimulator.lorenzAttractor()
+                OdeNumericalSimulator.lorenzAttractor(
+                    rho = 28.0 * (paramSlider.toDouble() / 1.5),
+                    x0 = if (initialPos == 0f) 0.01 else initialPos.toDouble()
+                )
             }
         }
     }

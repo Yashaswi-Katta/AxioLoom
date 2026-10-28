@@ -87,12 +87,22 @@ class ScratchOutDetector {
         fun ccw(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float): Float {
             return (cy - ay) * (bx - ax) - (by - ay) * (cx - ax)
         }
+        fun onSegment(px: Float, py: Float, qx: Float, qy: Float, rx: Float, ry: Float): Boolean {
+            return qx <= maxOf(px, rx) && qx >= minOf(px, rx) &&
+                   qy <= maxOf(py, ry) && qy >= minOf(py, ry)
+        }
         val ccw1 = ccw(x1, y1, x2, y2, x3, y3)
         val ccw2 = ccw(x1, y1, x2, y2, x4, y4)
         val ccw3 = ccw(x3, y3, x4, y4, x1, y1)
         val ccw4 = ccw(x3, y3, x4, y4, x2, y2)
-        return ((ccw1 > 0f && ccw2 < 0f) || (ccw1 < 0f && ccw2 > 0f)) &&
-               ((ccw3 > 0f && ccw4 < 0f) || (ccw3 < 0f && ccw4 > 0f))
+        if (((ccw1 > 0f && ccw2 < 0f) || (ccw1 < 0f && ccw2 > 0f)) &&
+            ((ccw3 > 0f && ccw4 < 0f) || (ccw3 < 0f && ccw4 > 0f))) return true
+
+        if (kotlin.math.abs(ccw1) < 1e-5f && onSegment(x1, y1, x3, y3, x2, y2)) return true
+        if (kotlin.math.abs(ccw2) < 1e-5f && onSegment(x1, y1, x4, y4, x2, y2)) return true
+        if (kotlin.math.abs(ccw3) < 1e-5f && onSegment(x3, y3, x1, y1, x4, y4)) return true
+        if (kotlin.math.abs(ccw4) < 1e-5f && onSegment(x3, y3, x2, y2, x4, y4)) return true
+        return false
     }
 
     private fun countHorizontalFlips(points: List<com.axioloom.app.domain.model.InkPoint>, width: Float): Int {

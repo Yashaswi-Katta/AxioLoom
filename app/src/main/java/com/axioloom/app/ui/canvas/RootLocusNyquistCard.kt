@@ -123,8 +123,8 @@ fun RootLocusNyquistCard(
                         val span = max(maxRe, maxIm) * 1.25
 
                         fun sToScreen(c: ComplexNumber): Offset {
-                            val px = (w / 2f + (c.re / span) * (w / 2f)).toFloat()
-                            val py = (h / 2f - (c.im / span) * (h / 2f)).toFloat()
+                            val px = (w / 2f + c.re * ((min(w, h) / 2f) / span)).toFloat()
+                            val py = (h / 2f - c.im * ((min(w, h) / 2f) / span)).toFloat()
                             return Offset(px, py)
                         }
 
@@ -168,8 +168,8 @@ fun RootLocusNyquistCard(
                         val span = min(5.0, maxR) * 1.2
 
                         fun gToScreen(re: Double, im: Double): Offset {
-                            val px = (w / 2f + (re / span) * (w / 2f)).toFloat()
-                            val py = (h / 2f - (im / span) * (h / 2f)).toFloat()
+                            val px = (w / 2f + re * ((min(w, h) / 2f) / span)).toFloat()
+                            val py = (h / 2f - im * ((min(w, h) / 2f) / span)).toFloat()
                             return Offset(px, py)
                         }
 
@@ -179,7 +179,7 @@ fun RootLocusNyquistCard(
                         drawLine(Color(0xFF252A31), Offset(cx, 0f), Offset(cx, h), strokeWidth = 1.5f)
 
                         // Draw Unit Circle
-                        val unitRadius = ((1.0 / span) * (w / 2f)).toFloat()
+                        val unitRadius = (1.0 * ((min(w, h) / 2f) / span)).toFloat()
                         drawCircle(Color(0xFF2E3846), radius = unitRadius, center = Offset(cx, cy), style = Stroke(width = 1f))
 
                         // Critical point (-1, 0)

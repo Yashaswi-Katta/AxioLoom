@@ -93,17 +93,23 @@ jobs:
           path: app/build/reports/tests/testDebugUnitTest/
           retention-days: 14
 
-      - name: Generate Ephemeral Release Keystore (if no secret provided)
+      - name: Setup Release Keystore
         run: |
-          keytool -genkeypair -v \
-            -keystore axioloom-release.jks \
-            -alias axioloom \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass axioloom123 \
-            -keypass axioloom123 \
-            -dname "CN=AxioLoom Offline, OU=Engineering, O=AxioLoom, L=Hyderabad, S=TS, C=IN"
+          if [ -f "keystore/release.jks" ]; then
+            echo "Using persistent repository release keystore"
+            cp keystore/release.jks axioloom-release.jks
+          else
+            echo "Generating fallback keystore"
+            keytool -genkeypair -v \
+              -keystore axioloom-release.jks \
+              -alias axioloom \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass axioloom123 \
+              -keypass axioloom123 \
+              -dname "CN=AxioLoom Offline, OU=Engineering, O=AxioLoom, L=Hyderabad, S=TS, C=IN"
+          fi
 
       - name: Assemble Signed Debug & Release APKs
         env:

@@ -14,6 +14,34 @@ data class TranspiledMath(val cleanLatex: String, val intent: MathIntent) {
 
 /** A deliberately bounded math grammar, not a permissive TeX or Symja program interpreter. */
 class LatexToSymjaTranspiler {
+    private fun sopToMathExpr(sopLatex: String): MathExpr {
+            val trimmed = sopLatex.trim()
+            if (trimmed == "0" || trimmed == "1") return MathExpr.Number(trimmed)
+            if (isIdentifier(trimmed)) return MathExpr.Symbol(trimmed)
+            val terms = trimmed.split("+").map { it.trim() }.filter { it.isNotEmpty() }
+            if (terms.isEmpty()) return MathExpr.Number("0")
+
+            val factorRegex = Regex("""\\overline\{([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)?)\}|([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)?)""")
+            val termExprs = terms.map { term ->
+                val factors = factorRegex.findAll(term).map { match ->
+                    val notVar = match.groups[1]?.value
+                    val plainVar = match.groups[2]?.value
+                    if (notVar != null && isIdentifier(notVar)) {
+                        MathExpr.Call("Not", listOf(MathExpr.Symbol(notVar)))
+                    } else if (plainVar != null && isIdentifier(plainVar)) {
+                        MathExpr.Symbol(plainVar)
+                    } else {
+                        MathExpr.Number("1")
+                    }
+                }.toList()
+                if (factors.isEmpty()) {
+                    MathExpr.Number("1")
+                } else {
+                    factors.reduce { acc, factor -> MathExpr.Binary(MathExpr.Op.MULTIPLY, acc, factor) }
+                }
+            }
+            return termExprs.reduce { acc, termExpr -> MathExpr.Binary(MathExpr.Op.ADD, acc, termExpr) }
+        }
     fun transpile(latex: String, boundSymbols: Set<String> = emptySet(), solveTarget: String? = null): TranspiledMath {
         require(latex.length <= 8192) { "Recognition output exceeds 8192 characters" }
         require(solveTarget == null || isIdentifier(solveTarget)) { "Invalid solve target" }
@@ -26,7 +54,7 @@ class LatexToSymjaTranspiler {
             if (kmapResult != null) {
                 return TranspiledMath(
                     cleanLatex = kmapResult.minimalSopLatex,
-                    intent = MathIntent.EvaluationQuery(MathExpr.Symbol(kmapResult.minimalSopLatex), false)
+                    intent = MathIntent.EvaluationQuery(sopToMathExpr(kmapResult.minimalSopLatex), false)
                 )
             }
         }

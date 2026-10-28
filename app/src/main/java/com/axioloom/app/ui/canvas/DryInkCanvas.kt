@@ -234,11 +234,14 @@ fun DryInkCanvas(
 
 private fun drawFallbackStroke(canvas: android.graphics.Canvas, timedStroke: com.axioloom.app.domain.model.TimedStroke) {
     val pts = timedStroke.geometry.points
+    if (pts.isEmpty()) return
+    val ox = timedStroke.translationOffset.x
+    val oy = timedStroke.translationOffset.y
     if (pts.size < 2) return
     val path = android.graphics.Path()
-    path.moveTo(pts[0].x, pts[0].y)
+    path.moveTo(pts[0].x + ox, pts[0].y + oy)
     for (i in 1 until pts.size) {
-        path.lineTo(pts[i].x, pts[i].y)
+        path.lineTo(pts[i].x + ox, pts[i].y + oy)
     }
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.WHITE

@@ -317,7 +317,10 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
     }
 
     // Automatically load derivation steps when STEPS tab is active or selected block changes
-    LaunchedEffect(activeWorkbenchTab, selectedBlockId) {
+    val activeBlockIntentKey = selectedBlockId?.let { id -> workspace.blocks.firstOrNull { it.id == id }?.ticket }
+        ?: workspace.blocks.firstOrNull { it.intent != null }?.ticket
+
+    LaunchedEffect(activeWorkbenchTab, selectedBlockId, activeBlockIntentKey) {
         if (activeWorkbenchTab == WorkbenchTab.STEPS) {
             val targetId = selectedBlockId ?: workspace.blocks.firstOrNull { it.intent != null }?.id
             if (targetId != null) {
@@ -1099,12 +1102,18 @@ fun MathWorkspaceScreen(viewModel: AxioLoomViewModel) {
     }
 
     if (showModelStatusDialog) {
-        val modelStatus = remember { viewModel.externalModelManager.getStatus() }
+        var modelStatus by remember { mutableStateOf(viewModel.externalModelManager.getStatus()) }
         ModelStatusDialog(
             status = modelStatus,
             onDismiss = { showModelStatusDialog = false },
-            onClearCustom = { viewModel.clearCustomHmerModel() },
-            onImportCustom = { mUri, vUri -> viewModel.importCustomHmerModel(mUri, vUri) }
+            onClearCustom = {
+                viewModel.clearCustomHmerModel()
+                modelStatus = viewModel.externalModelManager.getStatus()
+            },
+            onImportCustom = { mUri, vUri ->
+                viewModel.importCustomHmerModel(mUri, vUri)
+                modelStatus = viewModel.externalModelManager.getStatus()
+            }
         )
     }
 
@@ -2341,8 +2350,9 @@ private fun HandwritingCalibrationDialog(
                     OutlinedTextField(
                         value = symbolLabel,
                         onValueChange = {
+                            val prevLabel = symbolLabel
                             symbolLabel = it
-                            if (symbolLatex == symbolLabel.dropLast(1)) symbolLatex = it
+                            if (symbolLatex == prevLabel || symbolLatex == prevLabel.dropLast(1) || symbolLatex.isEmpty()) symbolLatex = it
                         },
                         label = { Text("Label") },
                         modifier = Modifier.weight(1f),

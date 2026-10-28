@@ -168,8 +168,9 @@ fun DiscreteStemPlotCard(
                 )
 
                 // Tooltip badge
-                if (hoveredIndex != null && hoveredIndex in activeSamples.indices) {
-                    val idx = hoveredIndex!!
+                val curHovered = hoveredIndex
+                if (curHovered != null && curHovered in activeSamples.indices) {
+                    val idx = curHovered
                     val v = activeSamples[idx]
                     Surface(
                         modifier = Modifier

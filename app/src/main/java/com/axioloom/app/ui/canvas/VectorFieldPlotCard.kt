@@ -102,7 +102,7 @@ fun VectorFieldPlotCard(
         max(1e-4, vectors.maxOfOrNull { it.magnitude } ?: 1.0)
     }
 
-    val streamlines = remember { mutableStateListOf<List<Offset>>() }
+    val streamlines = remember(pExpr, qExpr, boundValues) { mutableStateListOf<List<Offset>>() }
 
     Card(
         modifier = modifier
@@ -156,7 +156,7 @@ fun VectorFieldPlotCard(
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(pExpr, qExpr) {
+                        .pointerInput(pExpr, qExpr, boundValues) {
                             detectTapGestures { tapOffset ->
                                 val cx = size.width / 2f
                                 val cy = size.height / 2f
@@ -164,7 +164,7 @@ fun VectorFieldPlotCard(
                                 val worldX = ((tapOffset.x - cx) / scale).toDouble()
                                 val worldY = (-(tapOffset.y - cy) / scale).toDouble()
 
-                                val sl = VectorFieldSimulator.rk4Streamline(pExpr, qExpr, worldX, worldY)
+                                val sl = VectorFieldSimulator.rk4Streamline(pExpr, qExpr, worldX, worldY, bindings = boundValues)
                                 if (sl.size > 2) {
                                     streamlines.add(sl)
                                 }

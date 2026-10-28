@@ -12,8 +12,8 @@ android {
         applicationId = "com.axioloom.app"
         minSdk = 28
         targetSdk = 34
-        versionCode = 7
-        versionName = "2.1.7"
+        versionCode = 8
+        versionName = "2.1.8"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
@@ -22,9 +22,10 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystorePath = System.getenv("KEYSTORE_FILE")
-            if (keystorePath != null && file(keystorePath).exists()) {
-                storeFile = file(keystorePath)
+            val keystoreFile = System.getenv("KEYSTORE_FILE")?.let { file(it) }
+                ?: rootProject.file("keystore/release.jks").takeIf { it.exists() }
+            if (keystoreFile != null && keystoreFile.exists()) {
+                storeFile = keystoreFile
                 storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "axioloom123"
                 keyAlias = System.getenv("KEY_ALIAS") ?: "axioloom"
                 keyPassword = System.getenv("KEY_PASSWORD") ?: "axioloom123"
@@ -122,4 +123,7 @@ dependencies {
     implementation("ru.noties:jlatexmath-android:0.2.0")
 
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
 }

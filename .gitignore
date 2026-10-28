@@ -26,6 +26,7 @@ local.properties
 
 # Keystore files
 *.jks
+!keystore/release.jks
 *.keystore
 
 # Android Studio / IntelliJ IDEA

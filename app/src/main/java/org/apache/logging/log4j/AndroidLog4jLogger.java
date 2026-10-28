@@ -50,6 +50,7 @@ class AndroidLog4jLogger implements Logger {
     }
 
     private void logInternal(int priority, String msg, Throwable t) {
+        if (priority == Log.VERBOSE && !isTraceEnabled()) return;
         try {
             if (t != null) {
                 Log.println(priority, name, (msg != null ? msg : "") + '\n' + Log.getStackTraceString(t));

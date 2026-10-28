@@ -159,7 +159,7 @@ class HmerRecognitionCoordinator(
         require(value.none { it == '\u0000' }) { "Manual LaTeX contains a NUL character" }
         val accepted = synchronized(monitor) {
             val currentTicket = latestTickets[ticket.blockId]
-            if (closed || (currentTicket != null && currentTicket != ticket)) {
+            if (closed || currentTicket != ticket) {
                 false
             } else {
                 latestTickets[ticket.blockId] = ticket

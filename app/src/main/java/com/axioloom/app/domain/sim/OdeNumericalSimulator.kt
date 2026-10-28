@@ -19,12 +19,15 @@ data class OdeTrajectory(
         if (this === other) return true
         if (other !is OdeTrajectory) return false
         return timePoints.contentEquals(other.timePoints) &&
-               variableNames == other.variableNames
+               variableNames == other.variableNames &&
+               states.size == other.states.size &&
+               states.indices.all { states[it].contentEquals(other.states[it]) }
     }
 
     override fun hashCode(): Int {
         var result = timePoints.contentHashCode()
         result = 31 * result + variableNames.hashCode()
+        result = 31 * result + states.fold(0) { acc, arr -> 31 * acc + arr.contentHashCode() }
         return result
     }
 }
@@ -207,14 +210,14 @@ object OdeNumericalSimulator {
         )
     }
 
-    fun lorenzAttractor(sigma: Double = 10.0, rho: Double = 28.0, beta: Double = 8.0 / 3.0, tMax: Double = 25.0): OdeTrajectory {
+    fun lorenzAttractor(sigma: Double = 10.0, rho: Double = 28.0, beta: Double = 8.0 / 3.0, tMax: Double = 25.0, x0: Double = 1.0): OdeTrajectory {
         return integrate(
             f = { _, s -> doubleArrayOf(
                 sigma * (s[1] - s[0]),
                 s[0] * (rho - s[2]) - s[1],
                 s[0] * s[1] - beta * s[2]
             ) },
-            initialState = doubleArrayOf(1.0, 1.0, 1.0),
+            initialState = doubleArrayOf(x0, 1.0, 1.0),
             tMax = tMax,
             variableNames = listOf("x", "y", "z")
         )

@@ -61,6 +61,7 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
         const val PROTOTYPES_FILE_NAME = "user_symbol_prototypes.json"
 
         fun resamplePolyline(points: List<Offset>, targetCount: Int): List<Offset> {
+            if (targetCount <= 0) return emptyList()
             if (points.isEmpty()) return List(targetCount) { Offset.Zero }
             if (points.size == 1 || targetCount <= 1) return List(targetCount) { points.first() }
 
@@ -124,14 +125,17 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
                 }
                 val totalLen = lengths.sum()
 
-                var remaining = TARGET_POINTS
+                val targetBudget = max(TARGET_POINTS, strokeCount * 2)
+                var remaining = targetBudget
                 val pointCounts = IntArray(strokeCount)
                 for (i in 0 until strokeCount) {
                     val count = if (i == strokeCount - 1) {
-                        remaining
+                        max(1, remaining)
                     } else {
-                        val allocated = max(2, round(TARGET_POINTS * (lengths[i] / totalLen)).toInt())
-                        min(allocated, remaining - (strokeCount - 1 - i) * 2)
+                        val allocated = max(2, round(targetBudget * (lengths[i] / totalLen)).toInt())
+                        val minReserve = (strokeCount - 1 - i) * 2
+                        max(2, min(allocated, remaining - minReserve))
+
                     }
                     pointCounts[i] = count
                     remaining -= count

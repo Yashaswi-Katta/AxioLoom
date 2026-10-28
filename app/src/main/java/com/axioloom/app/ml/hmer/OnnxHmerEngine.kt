@@ -306,7 +306,11 @@ class OnnxHmerEngine(
         val directory = File(appContext.cacheDir, "axioloom_hmer_models")
         if (!directory.exists() && !directory.mkdirs()) throw IOException("Cannot create private model cache")
         val destination = File(directory, assetPath.replace('/', '_'))
-        if (!destination.isFile || destination.length() == 0L) {
+        val assetFd = runCatching { appContext.assets.openFd(assetPath) }.getOrNull()
+        val assetLength = assetFd?.length ?: -1L
+        assetFd?.close()
+        val needsMaterialize = !destination.isFile || destination.length() == 0L || (assetLength > 0L && destination.length() != assetLength)
+        if (needsMaterialize) {
             destination.delete()
             val temporary = File(directory, destination.name + ".tmp")
             try {

@@ -48,6 +48,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.OutputStream
 import java.util.UUID
 
@@ -105,6 +108,7 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     val isHmerNeuralReady = MutableStateFlow(false)
 
     private var autoSaveJob: Job? = null
+    private val pageMutex = Mutex()
 
     private val coordinator = HmerRecognitionCoordinator(
         scope = viewModelScope,
@@ -132,23 +136,39 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
 
         viewModelScope.launch(Dispatchers.IO) {
             warmupJob.join()
-            try {
-                val allPages = notebookRepo.listPages()
-                mutablePages.value = allPages
-                val activeId = notebookRepo.getActivePageId()
-                val activeMeta = allPages.firstOrNull { it.id == activeId }
-                    ?: allPages.firstOrNull()
-                    ?: notebookRepo.createPage("Main Notebook")
-                mutableCurrentPage.value = activeMeta
+            pageMutex.withLock {
+                try {
+                    val allPages = notebookRepo.listPages()
+                    mutablePages.value = allPages
+                    val activeId = notebookRepo.getActivePageId()
+                    val activeMeta = allPages.firstOrNull { it.id == activeId }
+                        ?: allPages.firstOrNull()
+                        ?: notebookRepo.createPage("Main Notebook")
+                    mutableCurrentPage.value = activeMeta
 
-                val restored = notebookRepo.loadPage(activeMeta.id, parser, graph)
-                if (restored != null && restored.strokes.isNotEmpty()) {
-                    restored.blocks.forEach { coordinator.registerTicket(it.ticket) }
-                    mutableInkWorkspace.value = restored
-                    updateCanUndoRedo()
+                    val restored = notebookRepo.loadPage(activeMeta.id, parser, graph)
+                    if (restored != null && restored.strokes.isNotEmpty()) {
+                        val currentStrokes = mutableInkWorkspace.value.strokes
+                        if (currentStrokes.isEmpty()) {
+                            restored.blocks.forEach { coordinator.registerTicket(it.ticket) }
+                            mutableInkWorkspace.value = restored
+                            updateCanUndoRedo()
+                        } else {
+                            val mergedStrokes = restored.strokes + currentStrokes
+                            val mergedBlocks = restored.blocks + mutableInkWorkspace.value.blocks
+                            val mergedWorkspace = mutableInkWorkspace.value.copy(
+                                strokes = mergedStrokes.distinctBy { it.id },
+                                blocks = mergedBlocks.distinctBy { it.id },
+                                version = mutableInkWorkspace.value.version + 1
+                            )
+                            restored.blocks.forEach { coordinator.registerTicket(it.ticket) }
+                            mutableInkWorkspace.value = mergedWorkspace
+                            updateCanUndoRedo()
+                        }
+                    }
+                } catch (e: Throwable) {
+                    android.util.Log.e("AxioLoomViewModel", "Error loading initial page", e)
                 }
-            } catch (e: Throwable) {
-                android.util.Log.e("AxioLoomViewModel", "Error loading initial page", e)
             }
         }
     }
@@ -388,13 +408,17 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
 
     private var sliderCommitJob: Job? = null
 
+    private var sliderScrubJob: Job? = null
+
     fun onParameterSliderScrub(varName: String, value: Double) {
-        viewModelScope.launch(Dispatchers.Default) {
+        sliderScrubJob?.cancel()
+        sliderScrubJob = viewModelScope.launch(Dispatchers.Default) {
             val results = FastNumericPropagator.propagate(
                 graph = graph.state.value,
                 blocks = mutableInkWorkspace.value.blocks,
                 overrides = mapOf(varName to value)
             )
+            ensureActive()
             mutableFastNumericOverrides.value = results
         }
     }
@@ -649,7 +673,20 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
             val previousState = mutableInkWorkspace.value
             val result = reducer.erase(previousState, erasedStrokeIds)
             historyManager.recordCommit(previousState)
-            mutableInkWorkspace.value = result.state
+            mutableInkWorkspace.update { liveState ->
+                if (liveState.version == previousState.version) {
+                    result.state
+                } else {
+                    val addedStrokes = liveState.strokes.filterNot { s -> previousState.strokes.any { it.id == s.id } }
+                    val finalStrokes = result.state.strokes.filterNot { it.id in erasedStrokeIds } + addedStrokes
+                    val finalBlocks = result.state.blocks.filterNot { b -> b.strokeIds.any { it in erasedStrokeIds } }
+                    result.state.copy(
+                        strokes = finalStrokes.distinctBy { it.id },
+                        blocks = finalBlocks.distinctBy { it.id },
+                        version = liveState.version + 1
+                    )
+                }
+            }
             updateCanUndoRedo()
 
             result.removedBlockIds.forEach { id ->
@@ -899,54 +936,58 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     fun createNewPage(title: String = "Untitled") {
         autoSaveJob?.cancel()
         viewModelScope.launch(Dispatchers.IO) {
-            val currentId = mutableCurrentPage.value?.id
-            if (currentId != null) {
-                notebookRepo.savePage(currentId, mutableInkWorkspace.value)
-            }
-            val newMeta = notebookRepo.createPage(title)
-            val allPages = notebookRepo.listPages()
-            mutablePages.value = allPages
-            mutableCurrentPage.value = newMeta
+            pageMutex.withLock {
+                val currentId = mutableCurrentPage.value?.id
+                if (currentId != null) {
+                    notebookRepo.savePage(currentId, mutableInkWorkspace.value)
+                }
+                val newMeta = notebookRepo.createPage(title)
+                val allPages = notebookRepo.listPages()
+                mutablePages.value = allPages
+                mutableCurrentPage.value = newMeta
 
-            historyManager.clear()
-            updateCanUndoRedo()
-            val prevIds = mutableInkWorkspace.value.blocks.map { it.id }
-            prevIds.forEach {
-                coordinator.forget(it)
-                graph.remove(it)
+                historyManager.clear()
+                updateCanUndoRedo()
+                val prevIds = mutableInkWorkspace.value.blocks.map { it.id }
+                prevIds.forEach {
+                    coordinator.forget(it)
+                    graph.remove(it)
+                }
+                mutableInkWorkspace.value = InkWorkspaceState()
+                mutableRecognitionMessages.value = emptyMap()
+                mutableInputError.value = null
             }
-            mutableInkWorkspace.value = InkWorkspaceState()
-            mutableRecognitionMessages.value = emptyMap()
-            mutableInputError.value = null
         }
     }
 
     fun switchPage(id: UUID) {
         autoSaveJob?.cancel()
         viewModelScope.launch(Dispatchers.IO) {
-            val currentId = mutableCurrentPage.value?.id
-            if (currentId != null) {
-                notebookRepo.savePage(currentId, mutableInkWorkspace.value)
-            }
-            notebookRepo.setActivePageId(id)
-            val allPages = notebookRepo.listPages()
-            val targetMeta = allPages.firstOrNull { it.id == id } ?: return@launch
-            mutablePages.value = allPages
-            mutableCurrentPage.value = targetMeta
+            pageMutex.withLock {
+                val currentId = mutableCurrentPage.value?.id
+                if (currentId != null) {
+                    notebookRepo.savePage(currentId, mutableInkWorkspace.value)
+                }
+                notebookRepo.setActivePageId(id)
+                val allPages = notebookRepo.listPages()
+                val targetMeta = allPages.firstOrNull { it.id == id } ?: return@withLock
+                mutablePages.value = allPages
+                mutableCurrentPage.value = targetMeta
 
-            historyManager.clear()
-            updateCanUndoRedo()
-            val prevIds = mutableInkWorkspace.value.blocks.map { it.id }
-            prevIds.forEach {
-                coordinator.forget(it)
-                graph.remove(it)
-            }
+                historyManager.clear()
+                updateCanUndoRedo()
+                val prevIds = mutableInkWorkspace.value.blocks.map { it.id }
+                prevIds.forEach {
+                    coordinator.forget(it)
+                    graph.remove(it)
+                }
 
-            val loaded = notebookRepo.loadPage(id, parser, graph) ?: InkWorkspaceState()
-            loaded.blocks.forEach { coordinator.registerTicket(it.ticket) }
-            mutableInkWorkspace.value = loaded
-            mutableRecognitionMessages.value = emptyMap()
-            mutableInputError.value = null
+                val loaded = notebookRepo.loadPage(id, parser, graph) ?: InkWorkspaceState()
+                loaded.blocks.forEach { coordinator.registerTicket(it.ticket) }
+                mutableInkWorkspace.value = loaded
+                mutableRecognitionMessages.value = emptyMap()
+                mutableInputError.value = null
+            }
         }
     }
 

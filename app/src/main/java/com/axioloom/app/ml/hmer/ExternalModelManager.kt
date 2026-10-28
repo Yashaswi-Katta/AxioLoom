@@ -63,23 +63,37 @@ class ExternalModelManager(private val context: Context) {
 
     fun importCustomModel(modelInput: InputStream, vocabInput: InputStream): Result<ExternalModelStatus> {
         return runCatching {
-            val tempModel = File(customDir, "temp_model.onnx")
-            val tempVocab = File(customDir, "temp_vocab.txt")
+            val stagingDir = File(customDir, "staging_${System.currentTimeMillis()}").apply { mkdirs() }
+            val tempModel = File(stagingDir, "model.onnx")
+            val tempVocab = File(stagingDir, "vocab.txt")
 
-            tempModel.outputStream().use { out -> modelInput.copyTo(out) }
-            tempVocab.outputStream().use { out -> vocabInput.copyTo(out) }
+            try {
+                tempModel.outputStream().use { out -> modelInput.copyTo(out) }
+                tempVocab.outputStream().use { out -> vocabInput.copyTo(out) }
 
-            require(tempModel.length() > 1024) { "Custom ONNX model file is suspiciously small or empty" }
-            val lines = tempVocab.readLines().filter { it.isNotBlank() }
-            require(lines.size >= 10) { "Vocabulary must contain at least 10 tokens, found ${lines.size}" }
+                require(tempModel.length() > 1024) { "Custom ONNX model file is suspiciously small or empty" }
+                val parsedVocab = HmerVocabulary.fromLines(tempVocab.readLines())
+                require(parsedVocab.size >= 10) { "Vocabulary must contain at least 10 tokens, found ${parsedVocab.size}" }
 
-            if (customModelFile.exists()) customModelFile.delete()
-            if (customEncoderFile.exists()) customEncoderFile.delete()
-            if (customDecoderFile.exists()) customDecoderFile.delete()
-            if (customVocabFile.exists()) customVocabFile.delete()
+                val backupDir = File(customDir, "backup_${System.currentTimeMillis()}").apply { mkdirs() }
+                try {
+                    if (customModelFile.exists()) customModelFile.renameTo(File(backupDir, customModelFile.name))
+                    if (customEncoderFile.exists()) customEncoderFile.renameTo(File(backupDir, customEncoderFile.name))
+                    if (customDecoderFile.exists()) customDecoderFile.renameTo(File(backupDir, customDecoderFile.name))
+                    if (customVocabFile.exists()) customVocabFile.renameTo(File(backupDir, customVocabFile.name))
 
-            check(tempModel.renameTo(customModelFile)) { "Failed to commit custom ONNX model file" }
-            check(tempVocab.renameTo(customVocabFile)) { "Failed to commit custom vocabulary file" }
+                    check(tempModel.renameTo(customModelFile)) { "Failed to commit custom ONNX model file" }
+                    check(tempVocab.renameTo(customVocabFile)) { "Failed to commit custom vocabulary file" }
+
+                    backupDir.deleteRecursively()
+                } catch (t: Throwable) {
+                    backupDir.listFiles()?.forEach { it.renameTo(File(customDir, it.name)) }
+                    backupDir.deleteRecursively()
+                    throw t
+                }
+            } finally {
+                stagingDir.deleteRecursively()
+            }
 
             getStatus()
         }
@@ -91,26 +105,40 @@ class ExternalModelManager(private val context: Context) {
         vocabInput: InputStream
     ): Result<ExternalModelStatus> {
         return runCatching {
-            val tempEnc = File(customDir, "temp_enc.onnx")
-            val tempDec = File(customDir, "temp_dec.onnx")
-            val tempVocab = File(customDir, "temp_vocab.txt")
+            val stagingDir = File(customDir, "staging_${System.currentTimeMillis()}").apply { mkdirs() }
+            val tempEnc = File(stagingDir, "enc.onnx")
+            val tempDec = File(stagingDir, "dec.onnx")
+            val tempVocab = File(stagingDir, "vocab.txt")
 
-            tempEnc.outputStream().use { out -> encoderInput.copyTo(out) }
-            tempDec.outputStream().use { out -> decoderInput.copyTo(out) }
-            tempVocab.outputStream().use { out -> vocabInput.copyTo(out) }
+            try {
+                tempEnc.outputStream().use { out -> encoderInput.copyTo(out) }
+                tempDec.outputStream().use { out -> decoderInput.copyTo(out) }
+                tempVocab.outputStream().use { out -> vocabInput.copyTo(out) }
 
-            require(tempEnc.length() > 1024 && tempDec.length() > 1024) { "Encoder/Decoder ONNX files are suspiciously small" }
-            val lines = tempVocab.readLines().filter { it.isNotBlank() }
-            require(lines.size >= 10) { "Vocabulary must contain at least 10 tokens, found ${lines.size}" }
+                require(tempEnc.length() > 1024 && tempDec.length() > 1024) { "Encoder/Decoder ONNX files are suspiciously small" }
+                val parsedVocab = HmerVocabulary.fromLines(tempVocab.readLines())
+                require(parsedVocab.size >= 10) { "Vocabulary must contain at least 10 tokens, found ${parsedVocab.size}" }
 
-            if (customModelFile.exists()) customModelFile.delete()
-            if (customEncoderFile.exists()) customEncoderFile.delete()
-            if (customDecoderFile.exists()) customDecoderFile.delete()
-            if (customVocabFile.exists()) customVocabFile.delete()
+                val backupDir = File(customDir, "backup_${System.currentTimeMillis()}").apply { mkdirs() }
+                try {
+                    if (customModelFile.exists()) customModelFile.renameTo(File(backupDir, customModelFile.name))
+                    if (customEncoderFile.exists()) customEncoderFile.renameTo(File(backupDir, customEncoderFile.name))
+                    if (customDecoderFile.exists()) customDecoderFile.renameTo(File(backupDir, customDecoderFile.name))
+                    if (customVocabFile.exists()) customVocabFile.renameTo(File(backupDir, customVocabFile.name))
 
-            check(tempEnc.renameTo(customEncoderFile)) { "Failed to commit custom encoder file" }
-            check(tempDec.renameTo(customDecoderFile)) { "Failed to commit custom decoder file" }
-            check(tempVocab.renameTo(customVocabFile)) { "Failed to commit custom vocabulary file" }
+                    check(tempEnc.renameTo(customEncoderFile)) { "Failed to commit custom encoder file" }
+                    check(tempDec.renameTo(customDecoderFile)) { "Failed to commit custom decoder file" }
+                    check(tempVocab.renameTo(customVocabFile)) { "Failed to commit custom vocabulary file" }
+
+                    backupDir.deleteRecursively()
+                } catch (t: Throwable) {
+                    backupDir.listFiles()?.forEach { it.renameTo(File(customDir, it.name)) }
+                    backupDir.deleteRecursively()
+                    throw t
+                }
+            } finally {
+                stagingDir.deleteRecursively()
+            }
 
             getStatus()
         }
