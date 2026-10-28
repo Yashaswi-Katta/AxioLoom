@@ -94,7 +94,7 @@ fun CircuitSolverSheet(
                     is com.axioloom.app.domain.circuit.CircuitElement.Inductor -> "${el.name} ${el.nodeA} ${el.nodeB} $valStr"
                     is com.axioloom.app.domain.circuit.CircuitElement.VoltageSource -> "${el.name} ${el.nodePos} ${el.nodeNeg} $valStr"
                     is com.axioloom.app.domain.circuit.CircuitElement.CurrentSource -> "${el.name} ${el.nodeFrom} ${el.nodeTo} $valStr"
-                    is com.axioloom.app.domain.circuit.CircuitElement.Vccs -> null
+                    is com.axioloom.app.domain.circuit.CircuitElement.Vccs -> "${el.name} ${el.outPos} ${el.outNeg} ${el.ctrlPos} ${el.ctrlNeg} $valStr"
                 }
             }
             if (lines.isNotEmpty()) {

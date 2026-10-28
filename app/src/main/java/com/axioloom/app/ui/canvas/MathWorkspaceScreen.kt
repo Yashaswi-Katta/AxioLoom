@@ -1994,12 +1994,14 @@ private fun InspectorTabContent(
                 } else null
 
                 if (assignment != null && scalarVal != null) {
-                    ParameterSliderPill(
-                        variableName = assignment.variableName,
-                        initialValue = scalarVal,
-                        onValueChange = { newVal -> onParameterScrub(assignment.variableName, newVal) },
-                        onValueChangeFinished = { newVal -> onParameterRelease(selectedBlock.id, assignment.variableName, newVal) }
-                    )
+                    androidx.compose.runtime.key(selectedBlock.id, assignment.variableName) {
+                        ParameterSliderPill(
+                            variableName = assignment.variableName,
+                            initialValue = scalarVal,
+                            onValueChange = { newVal -> onParameterScrub(assignment.variableName, newVal) },
+                            onValueChangeFinished = { newVal -> onParameterRelease(selectedBlock.id, assignment.variableName, newVal) }
+                        )
+                    }
                 }
 
                 Row(

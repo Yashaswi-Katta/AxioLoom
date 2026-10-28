@@ -1,5 +1,7 @@
 package com.axioloom.app.domain
 
+import com.axioloom.app.domain.sim.OdeTrajectory
+
 import com.axioloom.app.domain.cas.MatrixAnalyzer
 import com.axioloom.app.domain.cas.OfflineCasEngine
 import com.axioloom.app.domain.gesture.ScratchOutDetector
@@ -275,5 +277,61 @@ class PhaseRemediationAuditTest {
         val expr = MathExpr.Binary(MathExpr.Op.DIVIDE, MathExpr.Symbol("m"), MathExpr.Symbol("s"))
         val res = DimensionalAnalyzer.analyze(expr, variableDimensions = mapOf("m" to DimensionVector.METER, "s" to DimensionVector.SECOND))
         assertEquals("[m·s^-1]", res.compactUnit)
+    }
+    @Test
+    fun prototypeClassifierStrokeBudgetingLargeStrokeCounts() {
+        for (strokeCount in listOf(1, 2, 16, 17, 18, 30, 50)) {
+            val strokes = (0 until strokeCount).map { i ->
+                listOf(Offset(i * 5f, 0f), Offset(i * 5f + 10f, 20f))
+            }
+            val points = SymbolPrototypeClassifier.processStrokes(strokes)
+            assertTrue("Expected points for strokeCount $strokeCount to be non-empty", points.isNotEmpty())
+            assertTrue("Expected points to have valid coordinates", points.all { it.x.isFinite() && it.y.isFinite() })
+        }
+    }
+
+    @Test
+    fun odeTrajectoryEqualityChecksStateContent() {
+        val t = doubleArrayOf(0.0, 0.5, 1.0)
+        val names = listOf("x", "y")
+        val states1 = listOf(doubleArrayOf(1.0, 0.0), doubleArrayOf(0.5, 0.5), doubleArrayOf(0.0, 1.0))
+        val states2 = listOf(doubleArrayOf(2.0, 0.0), doubleArrayOf(1.5, 0.5), doubleArrayOf(1.0, 1.0))
+        val states1Copy = listOf(doubleArrayOf(1.0, 0.0), doubleArrayOf(0.5, 0.5), doubleArrayOf(0.0, 1.0))
+
+        val traj1 = OdeTrajectory(t, states1, names)
+        val traj2 = OdeTrajectory(t, states2, names)
+        val traj3 = OdeTrajectory(t, states1Copy, names)
+
+        assertNotEquals("Trajectories with different states must not be equal", traj1, traj2)
+        assertEquals("Trajectories with identical states must be equal", traj1, traj3)
+        assertEquals("Equal trajectories must have matching hashCodes", traj1.hashCode(), traj3.hashCode())
+    }
+
+    @Test
+    fun kmapTranspilationMinimalSopDoesNotCrash() {
+        val transpiled = parser.transpile("\\operatorname{kmap}(1, 3, 5, 7)")
+        val query = transpiled.intent as MathIntent.EvaluationQuery
+        val compiled = SymjaCompiler.compile(query)
+        assertTrue("Compiled command should not be empty", compiled.command.isNotEmpty())
+    }
+
+    @Test
+    fun circuitSolverVccsElementNetlistRoundtrip() = runBlocking {
+        val cas = OfflineCasEngine()
+        try {
+            cas.warmUp()
+            val solver = SymbolicMnaSolver(cas)
+            val netlist = solver.parseNetlist("V1 1 0 10\nR1 1 2 100\nG1 3 0 1 2 0.05\nR2 3 0 200")
+            assertEquals(4, netlist.size)
+            val vccs = netlist.filterIsInstance<com.axioloom.app.domain.circuit.CircuitElement.Vccs>().firstOrNull()
+            assertNotNull("Expected parsed VCCS element G1", vccs)
+            assertEquals("G1", vccs?.name)
+            assertEquals(3, vccs?.outPos)
+            assertEquals(0, vccs?.outNeg)
+            assertEquals(1, vccs?.ctrlPos)
+            assertEquals(2, vccs?.ctrlNeg)
+        } finally {
+            cas.close()
+        }
     }
 }

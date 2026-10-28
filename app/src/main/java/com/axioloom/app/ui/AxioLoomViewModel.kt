@@ -409,8 +409,10 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
     private var sliderCommitJob: Job? = null
 
     private var sliderScrubJob: Job? = null
+    private val scrubSequence = java.util.concurrent.atomic.AtomicLong(0L)
 
     fun onParameterSliderScrub(varName: String, value: Double) {
+        val ticket = scrubSequence.incrementAndGet()
         sliderScrubJob?.cancel()
         sliderScrubJob = viewModelScope.launch(Dispatchers.Default) {
             val results = FastNumericPropagator.propagate(
@@ -419,7 +421,9 @@ class AxioLoomViewModel(application: Application) : AndroidViewModel(application
                 overrides = mapOf(varName to value)
             )
             ensureActive()
-            mutableFastNumericOverrides.value = results
+            if (scrubSequence.get() == ticket) {
+                mutableFastNumericOverrides.value = results
+            }
         }
     }
 

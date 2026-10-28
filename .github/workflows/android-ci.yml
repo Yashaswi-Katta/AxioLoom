@@ -74,6 +74,13 @@ jobs:
             echo "sdkmanager not found directly; Gradle auto-download will handle SDK packages."
           fi
 
+      - name: Verify Gradle Wrapper Script & JAR
+        run: |
+          if [ ! -f "gradlew" ] || [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "::error::Gradle wrapper script (gradlew) or JAR is missing from checkout!"
+            exit 1
+          fi
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -84,6 +91,9 @@ jobs:
 
       - name: Run Full JUnit Test Suite (Phases 1-31)
         run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Compile Android Instrumentation Test Sources
+        run: ./gradlew :app:compileDebugAndroidTestSources --stacktrace
 
       - name: Upload JUnit HTML Test Report
         if: always()

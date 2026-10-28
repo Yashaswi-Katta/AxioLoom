@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +60,8 @@ fun ParameterSliderPill(
     onValueChangeFinished: (Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
     // Determine initial default bounds based on v0
     val defaultMin = remember(variableName, initialValue) {
         if (initialValue == 0.0) -10.0f
@@ -84,7 +87,7 @@ fun ParameterSliderPill(
 
     androidx.compose.runtime.DisposableEffect(variableName) {
         onDispose {
-            onValueChangeFinished(sliderValue.toDouble())
+            currentOnValueChangeFinished(sliderValue.toDouble())
         }
     }
 
@@ -104,7 +107,7 @@ fun ParameterSliderPill(
                 forward = true
             }
             sliderValue = next
-            onValueChange(next.toDouble())
+            currentOnValueChange(next.toDouble())
             kotlinx.coroutines.delay(16L) // ~60fps frame pace
         }
     }
@@ -145,7 +148,7 @@ fun ParameterSliderPill(
                         onClick = {
                             isPlaying = !isPlaying
                             if (!isPlaying) {
-                                onValueChangeFinished(sliderValue.toDouble())
+                                currentOnValueChangeFinished(sliderValue.toDouble())
                             }
                         }
                     ) {
@@ -164,10 +167,10 @@ fun ParameterSliderPill(
                 onValueChange = { newVal ->
                     if (isPlaying) isPlaying = false
                     sliderValue = newVal
-                    onValueChange(newVal.toDouble())
+                    currentOnValueChange(newVal.toDouble())
                 },
                 onValueChangeFinished = {
-                    onValueChangeFinished(sliderValue.toDouble())
+                    currentOnValueChangeFinished(sliderValue.toDouble())
                 },
                 valueRange = rangeMin..rangeMax,
                 colors = SliderDefaults.colors(
@@ -200,8 +203,8 @@ fun ParameterSliderPill(
                         rangeMin = -10f
                         rangeMax = 10f
                         sliderValue = sliderValue.coerceIn(rangeMin, rangeMax)
-                        onValueChange(sliderValue.toDouble())
-                        onValueChangeFinished(sliderValue.toDouble())
+                        currentOnValueChange(sliderValue.toDouble())
+                        currentOnValueChangeFinished(sliderValue.toDouble())
                     }
                 )
 
@@ -212,8 +215,8 @@ fun ParameterSliderPill(
                         rangeMin = 0f
                         rangeMax = 100f
                         sliderValue = sliderValue.coerceIn(rangeMin, rangeMax)
-                        onValueChange(sliderValue.toDouble())
-                        onValueChangeFinished(sliderValue.toDouble())
+                        currentOnValueChange(sliderValue.toDouble())
+                        currentOnValueChangeFinished(sliderValue.toDouble())
                     }
                 )
 
@@ -224,8 +227,8 @@ fun ParameterSliderPill(
                         rangeMin = 0f
                         rangeMax = (2.0 * PI).toFloat()
                         sliderValue = sliderValue.coerceIn(rangeMin, rangeMax)
-                        onValueChange(sliderValue.toDouble())
-                        onValueChangeFinished(sliderValue.toDouble())
+                        currentOnValueChange(sliderValue.toDouble())
+                        currentOnValueChangeFinished(sliderValue.toDouble())
                     }
                 )
 
@@ -236,8 +239,8 @@ fun ParameterSliderPill(
                         rangeMin = defaultMin
                         rangeMax = defaultMax
                         sliderValue = sliderValue.coerceIn(rangeMin, rangeMax)
-                        onValueChange(sliderValue.toDouble())
-                        onValueChangeFinished(sliderValue.toDouble())
+                        currentOnValueChange(sliderValue.toDouble())
+                        currentOnValueChangeFinished(sliderValue.toDouble())
                     }
                 )
             }

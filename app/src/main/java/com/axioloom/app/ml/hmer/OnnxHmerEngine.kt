@@ -303,8 +303,23 @@ class OnnxHmerEngine(
     }
 
     private fun materializeAsset(assetPath: String): String {
-        val directory = File(appContext.cacheDir, "axioloom_hmer_models")
-        if (!directory.exists() && !directory.mkdirs()) throw IOException("Cannot create private model cache")
+        val appVersionCode = runCatching {
+            val pInfo = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                appContext.packageManager.getPackageInfo(appContext.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+            }
+            androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(pInfo)
+        }.getOrDefault(1L)
+        val directory = File(appContext.cacheDir, "axioloom_hmer_models_v$appVersionCode")
+        if (!directory.exists()) {
+            directory.mkdirs()
+            appContext.cacheDir.listFiles()?.filter {
+                it.isDirectory && it.name.startsWith("axioloom_hmer_models") && it.name != directory.name
+            }?.forEach { it.deleteRecursively() }
+        }
+        if (!directory.exists()) throw IOException("Cannot create private model cache")
         val destination = File(directory, assetPath.replace('/', '_'))
         val assetFd = runCatching { appContext.assets.openFd(assetPath) }.getOrNull()
         val assetLength = assetFd?.length ?: -1L
