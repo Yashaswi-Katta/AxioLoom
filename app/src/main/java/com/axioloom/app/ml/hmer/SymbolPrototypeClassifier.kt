@@ -953,6 +953,26 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             Offset(0.8f, 0.25f), Offset(0.35f, 0.2f), Offset(0.2f, 0.55f),
             Offset(0.35f, 0.85f), Offset(0.8f, 0.8f)
         )))
+        // Differential 'd' Variations (straight stem, cursive loop, and two-stroke)
+        addBuiltIn("d", "d", listOf(listOf(
+            Offset(0.75f, 0.45f), Offset(0.5f, 0.35f), Offset(0.25f, 0.6f),
+            Offset(0.5f, 0.85f), Offset(0.75f, 0.65f), Offset(0.75f, 0.1f),
+            Offset(0.75f, 0.9f)
+        )))
+        addBuiltIn("d_loop", "d", listOf(listOf(
+            Offset(0.7f, 0.45f), Offset(0.45f, 0.38f), Offset(0.25f, 0.6f),
+            Offset(0.48f, 0.85f), Offset(0.7f, 0.65f), Offset(0.75f, 0.15f),
+            Offset(0.68f, 0.08f), Offset(0.6f, 0.18f), Offset(0.72f, 0.9f)
+        )))
+        addBuiltIn("d_two_stroke", "d", listOf(
+            listOf(Offset(0.65f, 0.4f), Offset(0.35f, 0.35f), Offset(0.2f, 0.6f), Offset(0.35f, 0.85f), Offset(0.65f, 0.8f)),
+            listOf(Offset(0.7f, 0.1f), Offset(0.7f, 0.9f))
+        ))
+        addBuiltIn("\\partial", "\\partial", listOf(listOf(
+            Offset(0.75f, 0.15f), Offset(0.5f, 0.1f), Offset(0.3f, 0.3f),
+            Offset(0.35f, 0.65f), Offset(0.65f, 0.85f), Offset(0.75f, 0.65f),
+            Offset(0.55f, 0.45f), Offset(0.3f, 0.55f)
+        )))
 
         // Constants: \pi, e
         addBuiltIn("\\pi", "\\pi", listOf(
