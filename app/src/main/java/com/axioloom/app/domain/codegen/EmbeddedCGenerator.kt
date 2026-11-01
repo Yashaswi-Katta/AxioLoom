@@ -394,7 +394,7 @@ object EmbeddedCGenerator {
             is MathExpr.DiscreteSequence -> {
                 if (expr.elements.isNotEmpty()) emitCExpr(expr.elements[0], prec, cse, repeated, rawToTemp, allocateTemp) else "0.0$sfx"
             }
-            is MathExpr.IndexedSequence -> "${expr.name}[(int)(${emitCExpr(expr.index, prec, cse, repeated, rawToTemp, allocateTemp)})]"
+            is MathExpr.IndexedSequence -> "${sanitizeCIdent(expr.name)}[((int)(${emitCExpr(expr.index, prec, cse, repeated, rawToTemp, allocateTemp)})) - 1]"
             is MathExpr.DiscreteConvolution,
             is MathExpr.CircularConvolution,
             is MathExpr.DiscreteFourierTransform -> "0.0$sfx"

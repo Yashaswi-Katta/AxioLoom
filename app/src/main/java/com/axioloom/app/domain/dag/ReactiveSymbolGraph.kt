@@ -182,8 +182,9 @@ class ReactiveSymbolGraph(
             if (id !in activeIds) continue
             val failedDependency = dependencies[id].orEmpty().firstOrNull { blocks[it]?.status is BlockStatus.Error }
             if (failedDependency != null) {
+                val depSymbol = intents[failedDependency]?.definedSymbol?.displayName ?: "upstream block"
                 blocks[id] = blocks.getValue(id).copy(
-                    status = BlockStatus.Error("Dependency ${failedDependency} is invalid"), result = null
+                    status = BlockStatus.Error("Dependency '$depSymbol' is invalid"), result = null
                 )
                 continue
             }

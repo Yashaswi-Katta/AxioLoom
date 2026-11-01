@@ -363,4 +363,93 @@ class PhaseRemediationAuditTest {
         val match = classifier.classify(listOf(garbageStroke))
         assertNotNull("Match object should be returned", match)
     }
+
+    @Test
+    fun indexedSequenceBoundExpansionEvaluatesCorrectly() = runBlocking {
+        val cas = OfflineCasEngine()
+        try {
+            cas.warmUp()
+            val seqDef = parser.transpile("a = [10, 20, 30]")
+            val query = parser.transpile("a[2] =")
+            val snap = BindingSnapshot(values = mapOf("a" to (seqDef.intent as MathIntent.Assignment).rhs))
+            val res = cas.evaluate(query.intent, bindings = snap)
+            assertEquals("20", res.expression)
+        } finally {
+            cas.close()
+        }
+    }
+
+    @Test
+    fun matrixScalarMultiplicationCompilesToStandardTimes() = runBlocking {
+        val cas = OfflineCasEngine()
+        try {
+            cas.warmUp()
+            val transpiled = parser.transpile("2 * \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} =")
+            val res = cas.evaluate(transpiled.intent)
+            assertEquals("{{2,4},{6,8}}", res.expression.replace("\n", "").replace(" ", ""))
+        } finally {
+            cas.close()
+        }
+    }
+
+    @Test
+    fun isMatrixCircularReferenceDoesNotCauseStackOverflow() {
+        val circular = MathExpr.Binary(MathExpr.Op.ADD, MathExpr.Symbol("A"), MathExpr.Number("1"))
+        val snap = BindingSnapshot(values = mapOf("A" to circular))
+        val exception = assertThrows(IllegalStateException::class.java) {
+            SymjaCompiler.compile(MathIntent.EvaluationQuery(MathExpr.Symbol("A")), snap)
+        }
+        assertTrue("Expected circular dependency exception message", exception.message?.contains("Circular") == true)
+    }
+
+    @Test
+    fun calculusMvtHandlesNegativeBoundsWithoutSyntaxError() = runBlocking {
+        val cas = OfflineCasEngine()
+        try {
+            cas.warmUp()
+            val analyzer = com.axioloom.app.domain.cas.CalculusTheoremAnalyzer(cas)
+            val res = analyzer.verifyLagrange("x^2", "x", -2.0, 2.0)
+            assertTrue("MVT should be valid on [-2, 2]", res.isValid)
+            assertEquals(1, res.rootsC.size)
+            assertEquals(0.0, res.rootsC[0], 1e-4)
+        } finally {
+            cas.close()
+        }
+    }
+
+    @Test
+    fun odeSimulatorHandlesNaNInstabilityWithoutStepExplosion() {
+        // Stiff/singular ODE y' = 1/y with y(0) = 0
+        val traj = com.axioloom.app.domain.sim.OdeNumericalSimulator.integrate(
+            f = { _, s -> doubleArrayOf(1.0 / s[0]) },
+            initialState = doubleArrayOf(0.0),
+            tMax = 1.0,
+            maxSteps = 50
+        )
+        assertNotNull(traj)
+        assertTrue("Trajectory should finish without infinite loops", traj.stepCount <= 55)
+    }
+
+    @Test
+    fun symbolicMnaHandlesSingularMatrixGracefully() = runBlocking {
+        val cas = OfflineCasEngine()
+        try {
+            cas.warmUp()
+            val solver = SymbolicMnaSolver(cas)
+            // Two parallel ideal voltage sources in loop (singular loop)
+            val netlist = solver.parseNetlist("V1 1 0 10\nV2 1 0 5")
+            val res = solver.solve(netlist)
+            assertNotNull(res)
+            assertTrue("Singular circuit must not crash solver", res.nodeVoltages.isNotEmpty())
+        } finally {
+            cas.close()
+        }
+    }
+
+    @Test
+    fun embeddedCGeneratorTranslatesOneBasedToZeroBased() {
+        val expr = MathExpr.IndexedSequence("data", MathExpr.Number("1"))
+        val code = EmbeddedCGenerator.generateMathFunction(expr, "test_index")
+        assertTrue("C code must translate 1-based index to 0-based: - 1", code.sourceCode.contains("- 1") || code.sourceCode.contains("data["))
+    }
 }

@@ -153,6 +153,12 @@ object OdeNumericalSimulator {
             }
             val err = sqrt(errSumSq / n)
 
+            if (err.isNaN() || err.isInfinite()) {
+                h *= 0.2
+                if (h < 1e-12) break
+                continue
+            }
+
             // Step size adjustment
             val factor = if (err > 0.0) {
                 0.9 * (1.0 / err).pow(0.2).coerceIn(0.2, 5.0)

@@ -155,7 +155,7 @@ fun DryInkCanvas(
                         val shortMsg = if (errorMsg.length > 26) errorMsg.take(23) + "..." else errorMsg
                         val errTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                             color = android.graphics.Color.rgb(245, 140, 150)
-                            textSize = 10f
+                            textSize = 10f / viewport.scale
                             typeface = android.graphics.Typeface.MONOSPACE
                         }
                         val errBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -165,15 +165,16 @@ fun DryInkCanvas(
                         val errBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                             color = android.graphics.Color.argb(180, 212, 81, 92)
                             style = Paint.Style.STROKE
-                            strokeWidth = 1f
+                            strokeWidth = 1f / viewport.scale
                         }
                         val textW = errTextPaint.measureText(shortMsg)
-                        val badgeLeft = bounds.right + 10f
+                        val badgeLeft = bounds.right + 10f / viewport.scale
                         val badgeTop = bounds.top
-                        val badgeRect = RectF(badgeLeft, badgeTop, badgeLeft + textW + 12f, badgeTop + 18f)
-                        canvas.drawRoundRect(badgeRect, 3f, 3f, errBgPaint)
-                        canvas.drawRoundRect(badgeRect, 3f, 3f, errBorderPaint)
-                        canvas.drawText(shortMsg, badgeLeft + 6f, badgeTop + 13f, errTextPaint)
+                        val badgeRect = RectF(badgeLeft, badgeTop, badgeLeft + textW + 12f / viewport.scale, badgeTop + 18f / viewport.scale)
+                        val radius = 3f / viewport.scale
+                        canvas.drawRoundRect(badgeRect, radius, radius, errBgPaint)
+                        canvas.drawRoundRect(badgeRect, radius, radius, errBorderPaint)
+                        canvas.drawText(shortMsg, badgeLeft + 6f / viewport.scale, badgeTop + 13f / viewport.scale, errTextPaint)
                     }
 
                     val fastOverride = fastNumericOverrides[block.id]

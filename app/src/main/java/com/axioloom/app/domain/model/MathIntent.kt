@@ -260,16 +260,19 @@ object SymjaCompiler {
             check(expanding.add(key)) { "Circular variable dependency" }
             try { return action() } finally { expanding.remove(key) }
         }
-        fun isMatrix(expr: MathExpr): Boolean = when (expr) {
+        fun isMatrix(expr: MathExpr, visited: Set<String> = emptySet()): Boolean = when (expr) {
             is MathExpr.Matrix -> true
             is MathExpr.Symbol -> {
-                val bound = bindings.values[expr.name]
-                bound != null && isMatrix(bound)
+                if (expr.name in visited) false
+                else {
+                    val bound = bindings.values[expr.name]
+                    bound != null && isMatrix(bound, visited + expr.name)
+                }
             }
-            is MathExpr.Unary -> isMatrix(expr.value)
+            is MathExpr.Unary -> isMatrix(expr.value, visited)
             is MathExpr.Binary -> when (expr.op) {
-                MathExpr.Op.ADD, MathExpr.Op.SUBTRACT -> isMatrix(expr.left) || isMatrix(expr.right)
-                MathExpr.Op.MULTIPLY, MathExpr.Op.POWER -> isMatrix(expr.left) || isMatrix(expr.right)
+                MathExpr.Op.ADD, MathExpr.Op.SUBTRACT -> isMatrix(expr.left, visited) || isMatrix(expr.right, visited)
+                MathExpr.Op.MULTIPLY, MathExpr.Op.POWER -> isMatrix(expr.left, visited) || isMatrix(expr.right, visited)
                 else -> false
             }
             is MathExpr.Builtin -> expr.function in setOf(
@@ -346,7 +349,7 @@ object SymjaCompiler {
                             "(${r(expr.left)}^${r(expr.right)})"
                         }
                     } else if (expr.op == MathExpr.Op.MULTIPLY) {
-                        if (isMatrix(expr.left) || isMatrix(expr.right)) {
+                        if (isMatrix(expr.left) && isMatrix(expr.right)) {
                             "Dot(${r(expr.left)},${r(expr.right)})"
                         } else {
                             "(${r(expr.left)}*${r(expr.right)})"
@@ -484,7 +487,10 @@ object SymjaCompiler {
                     "Piecewise($branchList,${r(expr.defaultExpr)})"
                 }
                 is MathExpr.DiscreteSequence -> expr.elements.joinToString(",", "{", "}") { r(it) }
-                is MathExpr.IndexedSequence -> "${symbol(expr.name)}[[${r(expr.index)}]]"
+                is MathExpr.IndexedSequence -> {
+                    val target = locals[expr.name] ?: bindings.values[expr.name]?.let { expand(SymbolKey(expr.name)) { r(it, emptyMap()) } } ?: symbol(expr.name)
+                    "($target)[[${r(expr.index)}]]"
+                }
                 is MathExpr.DiscreteConvolution -> {
                     val x = r(expr.left)
                     val h = r(expr.right)

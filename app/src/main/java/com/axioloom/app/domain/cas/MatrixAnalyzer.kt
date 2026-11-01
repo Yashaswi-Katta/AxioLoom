@@ -162,24 +162,25 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
         for (k in coeffs.indices.reversed()) {
             val c = coeffs[k].trim()
             if (c == "0" || c == "0.0") continue
-            val cVal = c.toDoubleOrNull() ?: 1.0
+            val cVal = c.toDoubleOrNull()
             val varTerm = when (k) {
                 0 -> ""
                 1 -> "\\lambda"
                 else -> "\\lambda^$k"
             }
             val cClean = if (c.endsWith(".0")) c.substringBefore(".0") else c
+            val isNegative = (cVal != null && cVal < 0) || cClean.startsWith("-")
+            val absC = if (cClean.startsWith("-")) cClean.substring(1).trim() else cClean
             if (parts.isEmpty()) {
                 if (varTerm.isEmpty()) parts += cClean
                 else if (cClean == "1") parts += varTerm
                 else if (cClean == "-1") parts += "-$varTerm"
                 else parts += "$cClean$varTerm"
             } else {
-                if (cVal > 0) {
+                if (!isNegative) {
                     val coeffStr = if (varTerm.isEmpty()) cClean else if (cClean == "1") "" else cClean
                     parts += "+ $coeffStr$varTerm".trim()
                 } else {
-                    val absC = if (cClean.startsWith("-")) cClean.substring(1) else cClean
                     val coeffStr = if (varTerm.isEmpty()) absC else if (absC == "1") "" else absC
                     parts += "- $coeffStr$varTerm".trim()
                 }
@@ -216,7 +217,9 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
             for (k in coeffs.indices.reversed()) {
                 val c = coeffs[k].trim()
                 if (c == "0" || c == "0.0") continue
-                val cVal = c.toDoubleOrNull() ?: 1.0
+                val cVal = c.toDoubleOrNull()
+                val isNegative = (cVal != null && cVal < 0) || c.startsWith("-")
+                val absC = if (c.startsWith("-")) c.substring(1).trim() else c
                 val matSymbol = when (k) {
                     0 -> "I"
                     1 -> "A"
@@ -227,11 +230,10 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
                     else if (c == "-1" || c == "-1.0") eqParts += "-$matSymbol"
                     else eqParts += "$c $matSymbol"
                 } else {
-                    if (cVal > 0) {
+                    if (!isNegative) {
                         val coeffStr = if (c == "1" || c == "1.0") "" else "$c "
                         eqParts += "+ $coeffStr$matSymbol"
                     } else {
-                        val absC = if (c.startsWith("-")) c.substring(1) else c
                         val coeffStr = if (absC == "1" || absC == "1.0") "" else "$absC "
                         eqParts += "- $coeffStr$matSymbol"
                     }
@@ -246,7 +248,9 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
                 for (k in (1 until coeffs.size).reversed()) {
                     val c = coeffs[k].trim()
                     if (c == "0" || c == "0.0") continue
-                    val cVal = c.toDoubleOrNull() ?: 1.0
+                    val cVal = c.toDoubleOrNull()
+                    val isNegative = (cVal != null && cVal < 0) || c.startsWith("-")
+                    val absC = if (c.startsWith("-")) c.substring(1).trim() else c
                     val matSymbol = when (k - 1) {
                         0 -> "I"
                         1 -> "A"
@@ -257,11 +261,10 @@ class MatrixAnalyzer(private val cas: OfflineCasEngine) {
                         else if (c == "-1" || c == "-1.0") invParts += "-$matSymbol"
                         else invParts += "$c $matSymbol"
                     } else {
-                        if (cVal > 0) {
+                        if (!isNegative) {
                             val coeffStr = if (c == "1" || c == "1.0") "" else "$c "
                             invParts += "+ $coeffStr$matSymbol"
                         } else {
-                            val absC = if (c.startsWith("-")) c.substring(1) else c
                             val coeffStr = if (absC == "1" || absC == "1.0") "" else "$absC "
                             invParts += "- $coeffStr$matSymbol"
                         }

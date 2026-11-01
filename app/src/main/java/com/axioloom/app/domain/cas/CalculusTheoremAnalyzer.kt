@@ -143,7 +143,7 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
         val fb = evaluateNumeric(fSymjaExpr, variable, b)
         val secantSlope = (fb - fa) / (b - a)
 
-        val secantSlopeLatex = cas.evalCommandToLatex("Together(($fb - $fa) / ($b - $a))")
+        val secantSlopeLatex = cas.evalCommandToLatex("Together((($fb) - ($fa)) / (($b) - ($a)))")
         val derivLatex = cas.evalCommandToLatex("D($fSymjaExpr, $variable)")
 
         if (!continuous || !differentiable) {
@@ -172,7 +172,7 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
 
         val tangentLines = numRoots.map { c ->
             val fc = evaluateNumeric(fSymjaExpr, variable, c)
-            val tangentEquation = cas.evalCommandToLatex("Expand($secantSlope * ($variable - $c) + $fc)")
+            val tangentEquation = cas.evalCommandToLatex("Expand(($secantSlope) * ($variable - ($c)) + ($fc))")
             TangentLine(
                 c = c,
                 fc = fc,
@@ -221,7 +221,7 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
 
         val gDiffNonZero = abs(gb - ga) > 1e-7
         val ratio = if (gDiffNonZero) (fb - fa) / (gb - ga) else Double.NaN
-        val ratioLatex = if (gDiffNonZero) cas.evalCommandToLatex("Together(($fb - $fa) / ($gb - $ga))") else "\\text{Undefined}"
+        val ratioLatex = if (gDiffNonZero) cas.evalCommandToLatex("Together((($fb) - ($fa)) / (($gb) - ($ga)))") else "\\text{Undefined}"
 
         val continuous = fCont && gCont
         val differentiable = fDiff && gDiff && gDiffNonZero

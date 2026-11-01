@@ -179,7 +179,11 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
         val (gMatrix, iVector) = buildMnaSystem(elements, numNodes, vSources, dim)
 
         // 3. Solve via CAS: LinearSolve(G, i)
-        val solvedValues = solveLinearSystem(gMatrix, iVector, dim, bindings)
+        val solvedValues = try {
+            solveLinearSystem(gMatrix, iVector, dim, bindings)
+        } catch (_: Exception) {
+            List(dim) { "\\text{Singular}" }
+        }
 
         val rawNodeVoltages = mutableMapOf<Int, String>()
         for (n in 1..numNodes) {
@@ -207,7 +211,11 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
             val vB = if (nB == 0) "0" else (rawNodeVoltages[nB] ?: "0")
 
             // Vth = Simplify(vA - vB) evaluated directly on Symja CAS
-            val vThRaw = cas.evalRaw("Simplify(($vA) - ($vB))")
+            val vThRaw = try {
+                cas.evalRaw("Simplify(($vA) - ($vB))")
+            } catch (_: Exception) {
+                "\\text{Indeterminate}"
+            }
             vTh = SymjaCompiler.decode(vThRaw)
 
             // Zth: Zero all independent sources, inject 1A test source from nB to nA
@@ -225,7 +233,11 @@ class SymbolicMnaSolver(private val cas: OfflineCasEngine) {
             val testRes = solve(passiveElements, theveninPort = null, bindings = bindings)
             val vTestA = if (nA == 0) "0" else (testRes.rawNodeVoltages[nA] ?: "0")
             val vTestB = if (nB == 0) "0" else (testRes.rawNodeVoltages[nB] ?: "0")
-            val zThRaw = cas.evalRaw("Simplify(($vTestA) - ($vTestB))")
+            val zThRaw = try {
+                cas.evalRaw("Simplify(($vTestA) - ($vTestB))")
+            } catch (_: Exception) {
+                "\\text{Indeterminate}"
+            }
             zTh = SymjaCompiler.decode(zThRaw)
         }
 
