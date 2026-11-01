@@ -589,4 +589,56 @@ class PhaseRemediationAuditTest {
         assertEquals(-2.0, realRoots[0], 1e-4)
         assertEquals(-1.0, realRoots[1], 1e-4)
     }
+
+    @Test
+    fun differentialNuanceStraightAndLoopedDClassification() {
+        val classifier = SymbolPrototypeClassifier()
+
+        // 1. Two-stroke 'd': circle bowl on left, vertical ascender on right
+        val bowlStroke = listOf(
+            Offset(20f, 60f), Offset(35f, 45f), Offset(50f, 60f),
+            Offset(35f, 75f), Offset(20f, 60f)
+        )
+        val ascenderStroke = listOf(
+            Offset(52f, 20f), Offset(52f, 75f)
+        )
+        val matches2 = classifier.classifyStrokes(listOf(bowlStroke, ascenderStroke))
+        assertFalse("Two-stroke d must match", matches2.isEmpty())
+        assertEquals("d", matches2.first().latex)
+
+        // 2. Looped single-stroke 'd'
+        val loopedDStroke = listOf(
+            Offset(45f, 50f), Offset(25f, 60f), Offset(35f, 75f), Offset(48f, 60f),
+            Offset(50f, 20f), Offset(42f, 12f), Offset(38f, 22f), Offset(50f, 75f)
+        )
+        val matchesLoop = classifier.classifyStrokes(listOf(loopedDStroke))
+        assertFalse("Looped d must match", matchesLoop.isEmpty())
+        assertEquals("d", matchesLoop.first().latex)
+    }
+
+    @Test
+    fun transpilerResolvesDeltaAndPartialDifferentialsAsDerivatives() {
+        // Standard dy/dx
+        val p1 = parser.transpile("\\frac{dy}{dx}")
+        assertTrue((p1.intent as MathIntent.EvaluationQuery).expression is MathExpr.Derivative)
+        val d1 = (p1.intent as MathIntent.EvaluationQuery).expression as MathExpr.Derivative
+        assertEquals("x", d1.variable)
+        assertEquals("y", (d1.body as MathExpr.Symbol).name)
+
+        // Partial \partial y / \partial x
+        val p2 = parser.transpile("\\frac{\\partial y}{\\partial x}")
+        assertTrue((p2.intent as MathIntent.EvaluationQuery).expression is MathExpr.Derivative)
+
+        // Delta \delta y / \delta x (handwriting nuance / difference quotient)
+        val p3 = parser.transpile("\\frac{\\delta y}{\\delta x}")
+        assertTrue((p3.intent as MathIntent.EvaluationQuery).expression is MathExpr.Derivative)
+
+        // Capital Delta \Delta y / \Delta x
+        val p4 = parser.transpile("\\frac{\\Delta y}{\\Delta x}")
+        assertTrue((p4.intent as MathIntent.EvaluationQuery).expression is MathExpr.Derivative)
+
+        // Operator notation d/dx (y)
+        val p5 = parser.transpile("\\frac{d}{dx} y")
+        assertTrue((p5.intent as MathIntent.EvaluationQuery).expression is MathExpr.Derivative)
+    }
 }

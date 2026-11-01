@@ -19,7 +19,10 @@ data class BeamHypothesis(
     val envStack: List<String> = emptyList(),
     val isEnded: Boolean = false,
     val coverage: FloatArray? = null,
-    val pendingMandatoryGroups: Int = 0
+    val pendingMandatoryGroups: Int = 0,
+    val insideFraction: Boolean = false,
+    val fractionPart: Int = 0,
+    val numeratorHasD: Boolean = false
 ) {
     fun lengthPenalizedScore(alpha: Double = 0.6): Double {
         val t = (tokens.size - 1).coerceAtLeast(1) // exclude start token
@@ -48,6 +51,8 @@ class ConstrainedBeamDecoder(
     private val openBraceId = vocabulary.exactIdFor("{")
     private val closeBraceId = vocabulary.exactIdFor("}")
     private val endId = vocabulary.endId
+    private val dId = vocabulary.exactIdFor("d")
+    private val partialId = vocabulary.exactIdFor("\\partial")
 
     private val nonGroupPredecessors = setOf(
         "\\frac", "\\dfrac", "\\tfrac", "\\sqrt", "_", "^"
@@ -157,8 +162,15 @@ class ConstrainedBeamDecoder(
         var newPendingGroups = hyp.pendingMandatoryGroups
 
         val tokenText = vocabulary.tokenFor(tokenId)
+        var newInsideFraction = hyp.insideFraction
+        var newFractionPart = hyp.fractionPart
+        var newNumHasD = hyp.numeratorHasD
+
         if (tokenText in setOf("\\frac", "\\dfrac", "\\tfrac")) {
             newPendingGroups += 2
+            newInsideFraction = true
+            newFractionPart = 0
+            newNumHasD = false
         } else if (tokenText in setOf("\\sqrt", "_", "^")) {
             newPendingGroups += 1
         }
@@ -166,8 +178,23 @@ class ConstrainedBeamDecoder(
         if (tokenId == openBraceId) {
             newBraceDepth++
             if (newPendingGroups > 0) newPendingGroups--
+            if (newInsideFraction) {
+                if (newFractionPart == 0) {
+                    newFractionPart = 1 // Numerator started
+                } else if (newFractionPart == 1 && newBraceDepth == 1) {
+                    newFractionPart = 2 // Denominator started
+                }
+            }
         } else if (tokenId == closeBraceId) {
+            if (newInsideFraction && newBraceDepth == 1 && newFractionPart == 2) {
+                newInsideFraction = false
+                newFractionPart = 0
+            }
             newBraceDepth = (newBraceDepth - 1).coerceAtLeast(0)
+        }
+
+        if (newInsideFraction && newFractionPart == 1 && (tokenText == "d" || tokenText == "\\partial")) {
+            newNumHasD = true
         }
 
         if (tokenText.startsWith("\\begin{") && tokenText.endsWith("}")) {
@@ -187,7 +214,10 @@ class ConstrainedBeamDecoder(
             envStack = newEnvStack,
             isEnded = isEnded,
             coverage = nextCoverage ?: hyp.coverage,
-            pendingMandatoryGroups = newPendingGroups
+            pendingMandatoryGroups = newPendingGroups,
+            insideFraction = newInsideFraction,
+            fractionPart = newFractionPart,
+            numeratorHasD = newNumHasD
         )
     }
 
@@ -213,6 +243,28 @@ class ConstrainedBeamDecoder(
             val logits = logitsPerBeam[bIndex]
             val mask = computeSyntaxMask(hyp, stepIndex, maxSequenceLength)
             val logProbs = logSoftmax(logits, mask)
+
+            // Syntax-guided contextual boost for differentials (dy/dx, \partial y/\partial x)
+            if (hyp.insideFraction && hyp.tokens.isNotEmpty() && hyp.tokens.last() == openBraceId) {
+                if (hyp.fractionPart == 2 && hyp.numeratorHasD) {
+                    // Start of denominator when numerator contained differential 'd' or '\partial'
+                    if (dId != null && dId < logProbs.size && logProbs[dId].isFinite()) {
+                        logProbs[dId] += 1.5
+                    }
+                    if (partialId != null && partialId < logProbs.size && logProbs[partialId].isFinite()) {
+                        logProbs[partialId] += 1.2
+                    }
+                } else if (hyp.fractionPart == 1) {
+                    // Start of numerator in fraction
+                    if (dId != null && dId < logProbs.size && logProbs[dId].isFinite()) {
+                        logProbs[dId] += 0.5
+                    }
+                    if (partialId != null && partialId < logProbs.size && logProbs[partialId].isFinite()) {
+                        logProbs[partialId] += 0.5
+                    }
+                }
+            }
+
             val cov = coveragePerBeam.getOrNull(bIndex)
 
             // Find top-K tokens for this beam

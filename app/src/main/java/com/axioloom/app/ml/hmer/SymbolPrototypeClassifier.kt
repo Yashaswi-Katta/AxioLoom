@@ -289,6 +289,16 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
                     }
                 }
             }
+
+            // 4. Differential 'd' (2-stroke: circular bowl on left, tall vertical ascender on right)
+            val s1IsBowl = w1 in (h1 * 0.5f)..(h1 * 1.6f) && min(w1, h1) >= 8f
+            val s2IsBowl = w2 in (h2 * 0.5f)..(h2 * 1.6f) && min(w2, h2) >= 8f
+            if (s1IsBowl && s2Vert && b2.center.x > b1.center.x && b2.top <= b1.top + 4f && b1.bottom <= b2.bottom + 12f) {
+                return ClassificationMatch("d", "d", 0.005f)
+            }
+            if (s2IsBowl && s1Vert && b1.center.x > b2.center.x && b1.top <= b2.top + 4f && b2.bottom <= b1.bottom + 12f) {
+                return ClassificationMatch("d", "d", 0.005f)
+            }
         } else if (count == 1) {
             val s = valid[0]
             val b = boundsOf(s)
@@ -304,12 +314,12 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             }
 
             // Minus (-)
-            if (w > h * 2.0f && dx > dy * 1.8f && w >= 12f) {
+            if (w > h * 2.0f && dx > dy * 1.8f && dx >= w * 0.75f && arcLen < w * 1.45f && w >= 12f) {
                 return ClassificationMatch("-", "-", 0.001f)
             }
 
             // One (1)
-            if (h > w * 2.3f && dy > dx * 2.0f && h >= 16f) {
+            if (h > w * 2.0f && dy > dx * 2.0f && dy >= h * 0.75f && arcLen < h * 1.45f && h >= 16f) {
                 return ClassificationMatch("1", "1", 0.001f)
             }
 

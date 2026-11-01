@@ -73,6 +73,12 @@ class LatexToSymjaTranspiler {
             .replace(Regex("\\\\parallel"), " || ")
             .replace(Regex("""\\\|"""), " || ")
             .replace(Regex("""\\partial\b"""), "d")
+            .replace(Regex("""\\frac\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}""")) { match ->
+                "\\frac{d ${match.groupValues[1]}}{d ${match.groupValues[2]}}"
+            }
+            .replace(Regex("""\\frac\s*\{\s*\\(?:delta|Delta)\s*\}\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}""")) { match ->
+                "\\frac{d}{d ${match.groupValues[1]}}"
+            }
                         .replace(Regex("""\\pm\b"""), "+")
             .replace(Regex("""\\mp\b"""), "-")
             .replace(Regex("""\\equiv\b"""), "==")
