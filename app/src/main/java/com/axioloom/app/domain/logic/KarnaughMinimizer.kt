@@ -285,24 +285,20 @@ object KarnaughMinimizer {
 
     fun parseKmapParams(raw: String): KmapParams? {
         val clean = raw.trim()
-        val numVars = when {
-            clean.contains("4") -> 4
-            clean.contains("3") -> 3
-            clean.contains("2") -> 2
-            else -> 4
-        }
+        val explicitVarMatch = Regex("""(?:\\operatorname\s*\{\s*kmap\s*\}|\bkmap\b)\s*\(\s*([234])\s*,""", RegexOption.IGNORE_CASE).find(clean)
+        val explicitNumVars = explicitVarMatch?.groupValues?.get(1)?.toIntOrNull()
 
         val minterms = mutableSetOf<Int>()
         val dontCares = mutableSetOf<Int>()
 
-        val mRegex = Regex("m\\s*\\(?\\s*([0-9,\\s]+)\\)?", RegexOption.IGNORE_CASE)
+        val mRegex = Regex("""(?:\b|\\sum\s*|\bminterms\b\s*)m\s*\(?\s*([0-9,\s]+)\)?""", RegexOption.IGNORE_CASE)
         mRegex.find(clean)?.let { match ->
             match.groupValues[1].split(Regex("[,\\s]+")).mapNotNull { it.toIntOrNull() }.forEach {
                 minterms.add(it)
             }
         }
 
-        val dRegex = Regex("d\\s*\\(?\\s*([0-9,\\s]+)\\)?", RegexOption.IGNORE_CASE)
+        val dRegex = Regex("""(?:\b|\\sum\s*|\bdontcares?\b\s*)d\s*\(?\s*([0-9,\s]+)\)?""", RegexOption.IGNORE_CASE)
         dRegex.find(clean)?.let { match ->
             match.groupValues[1].split(Regex("[,\\s]+")).mapNotNull { it.toIntOrNull() }.forEach {
                 dontCares.add(it)
@@ -311,12 +307,34 @@ object KarnaughMinimizer {
 
         if (minterms.isEmpty()) {
             val nums = Regex("[0-9]+").findAll(clean).map { it.value.toInt() }.toList()
-            if (nums.size > 1) {
-                minterms.addAll(nums.drop(1))
+            if (explicitNumVars != null) {
+                // First number was explicit variable count
+                if (nums.size > 1) {
+                    minterms.addAll(nums.drop(1))
+                }
+            } else {
+                if (nums.size > 1 && nums[0] in 2..4) {
+                    minterms.addAll(nums.drop(1))
+                } else {
+                    minterms.addAll(nums)
+                }
             }
         }
 
         if (minterms.isEmpty()) return null
+
+        val maxTerm = (minterms + dontCares).maxOrNull() ?: 0
+        val inferredVars = when {
+            maxTerm >= 8 -> 4
+            maxTerm >= 4 -> 3
+            else -> 2
+        }
+        val numVars = if (explicitNumVars != null) {
+            maxOf(explicitNumVars, inferredVars).coerceIn(2, 4)
+        } else {
+            inferredVars.coerceIn(2, 4)
+        }
+
         return KmapParams(numVars, minterms, dontCares)
     }
 

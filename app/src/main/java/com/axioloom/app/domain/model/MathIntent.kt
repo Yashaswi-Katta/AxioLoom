@@ -501,9 +501,9 @@ object SymjaCompiler {
                     val h = r(expr.right)
                     if (expr.length != null) {
                         val nLen = r(expr.length)
-                        "Table(Sum(($x)[[Mod(k-1, $nLen)+1]] * ($h)[[Mod(n-k, $nLen)+1]], {k, 1, $nLen}), {n, 1, $nLen})"
+                        "Table(Sum(If(Mod(k-1, $nLen)+1 <= Length($x), ($x)[[Mod(k-1, $nLen)+1]], 0) * If(Mod(n-k, $nLen)+1 <= Length($h), ($h)[[Mod(n-k, $nLen)+1]], 0), {k, 1, $nLen}), {n, 1, $nLen})"
                     } else {
-                        "With({N=Max(Length($x), Length($h))}, Table(Sum(($x)[[Mod(k-1, N)+1]] * ($h)[[Mod(n-k, N)+1]], {k, 1, N}), {n, 1, N}))"
+                        "With({N=Max(Length($x), Length($h))}, Table(Sum(If(Mod(k-1, N)+1 <= Length($x), ($x)[[Mod(k-1, N)+1]], 0) * If(Mod(n-k, N)+1 <= Length($h), ($h)[[Mod(n-k, N)+1]], 0), {k, 1, N}), {n, 1, N}))"
                     }
                 }
                 is MathExpr.DiscreteFourierTransform -> {

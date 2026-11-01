@@ -143,11 +143,14 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
         val fb = evaluateNumeric(fSymjaExpr, variable, b)
         val secantSlope = (fb - fa) / (b - a)
 
-        val secantSlopeLatex = cas.evalCommandToLatex("Together((($fb) - ($fa)) / (($b) - ($a)))")
+        val secantSlopeValid = !secantSlope.isNaN() && !secantSlope.isInfinite()
+        val secantSlopeLatex = if (secantSlopeValid) cas.evalCommandToLatex("Together((($fb) - ($fa)) / (($b) - ($a)))") else "\\text{Undefined}"
         val derivLatex = cas.evalCommandToLatex("D($fSymjaExpr, $variable)")
 
-        if (!continuous || !differentiable) {
-            val reason = if (!continuous) "f($variable) is not continuous on [$a, $b]" else "f($variable) is not differentiable on ($a, $b)"
+        if (!continuous || !differentiable || !secantSlopeValid) {
+            val reason = if (!continuous) "f($variable) is not continuous on [$a, $b]"
+                         else if (!differentiable) "f($variable) is not differentiable on ($a, $b)"
+                         else "Secant slope is undefined on [$a, $b]"
             return LagrangeMvtResult(
                 continuous = continuous,
                 differentiable = differentiable,
@@ -219,12 +222,13 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
         val ga = evaluateNumeric(gSymjaExpr, variable, a)
         val gb = evaluateNumeric(gSymjaExpr, variable, b)
 
-        val gDiffNonZero = abs(gb - ga) > 1e-7
+        val gDiffNonZero = abs(gb - ga) > 1e-7 && !gb.isNaN() && !ga.isNaN()
         val ratio = if (gDiffNonZero) (fb - fa) / (gb - ga) else Double.NaN
-        val ratioLatex = if (gDiffNonZero) cas.evalCommandToLatex("Together((($fb) - ($fa)) / (($gb) - ($ga)))") else "\\text{Undefined}"
+        val ratioValid = !ratio.isNaN() && !ratio.isInfinite()
+        val ratioLatex = if (gDiffNonZero && ratioValid) cas.evalCommandToLatex("Together((($fb) - ($fa)) / (($gb) - ($ga)))") else "\\text{Undefined}"
 
         val continuous = fCont && gCont
-        val differentiable = fDiff && gDiff && gDiffNonZero
+        val differentiable = fDiff && gDiff && gDiffNonZero && ratioValid
 
         if (!continuous || !differentiable) {
             return CauchyMvtResult(

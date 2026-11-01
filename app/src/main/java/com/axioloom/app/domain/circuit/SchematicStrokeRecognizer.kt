@@ -102,6 +102,7 @@ object SchematicStrokeRecognizer {
             for (j in i + 1 until allTerminals.size) {
                 val t1 = allTerminals[i]
                 val t2 = allTerminals[j]
+                if (t1.componentId == t2.componentId) continue
                 val dist = hypot(t1.position.x - t2.position.x, t1.position.y - t2.position.y)
                 if (dist <= snapRadiusPx) {
                     uf.union(i, j)

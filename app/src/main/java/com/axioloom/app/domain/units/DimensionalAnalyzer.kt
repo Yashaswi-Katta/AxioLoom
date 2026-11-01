@@ -185,6 +185,11 @@ object DimensionalAnalyzer {
 
     // Standard variable names heuristic units in ECE/Physics
     val DEFAULT_VAR_DIMENSIONS: Map<String, DimensionVector> = mapOf(
+        "x" to DimensionVector.METER,
+        "y" to DimensionVector.METER,
+        "z" to DimensionVector.METER,
+        "d" to DimensionVector.METER,
+        "s" to DimensionVector.METER,
         "v" to DimensionVector.VOLT,
         "v_in" to DimensionVector.VOLT,
         "v_out" to DimensionVector.VOLT,
@@ -335,8 +340,20 @@ object DimensionalAnalyzer {
                 }
             }
             is MathExpr.Phasor -> inferDimension(expr.magnitude, bindings, warnings)
-            is MathExpr.Integral -> inferDimension(expr.body, bindings, warnings) + (bindings[expr.variable] ?: DimensionVector.SECOND)
-            is MathExpr.Derivative -> inferDimension(expr.body, bindings, warnings) - (bindings[expr.variable] ?: DimensionVector.SECOND) * expr.order
+            is MathExpr.Integral -> {
+                val varDim = bindings[expr.variable] ?: bindings[expr.variable.lowercase()] ?: DEFAULT_VAR_DIMENSIONS[expr.variable] ?: DEFAULT_VAR_DIMENSIONS[expr.variable.lowercase()] ?: when (expr.variable.lowercase()) {
+                    "x", "y", "z", "r", "rho", "theta", "phi", "s", "d" -> DimensionVector.METER
+                    else -> DimensionVector.SECOND
+                }
+                inferDimension(expr.body, bindings, warnings) + varDim
+            }
+            is MathExpr.Derivative -> {
+                val varDim = bindings[expr.variable] ?: bindings[expr.variable.lowercase()] ?: DEFAULT_VAR_DIMENSIONS[expr.variable] ?: DEFAULT_VAR_DIMENSIONS[expr.variable.lowercase()] ?: when (expr.variable.lowercase()) {
+                    "x", "y", "z", "r", "rho", "theta", "phi", "s", "d" -> DimensionVector.METER
+                    else -> DimensionVector.SECOND
+                }
+                inferDimension(expr.body, bindings, warnings) - varDim * expr.order
+            }
             is MathExpr.Sum -> inferDimension(expr.body, bindings, warnings)
             is MathExpr.Limit -> inferDimension(expr.body, bindings, warnings)
             is MathExpr.Matrix -> if (expr.rows.isNotEmpty() && expr.rows[0].isNotEmpty()) inferDimension(expr.rows[0][0], bindings, warnings) else DimensionVector.DIMENSIONLESS

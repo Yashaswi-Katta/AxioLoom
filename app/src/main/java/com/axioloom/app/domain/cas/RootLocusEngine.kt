@@ -313,10 +313,8 @@ object RootLocusEngine {
 
     private fun evalPolyComplex(coeffs: DoubleArray, s: ComplexNumber): ComplexNumber {
         var res = ComplexNumber(0.0, 0.0)
-        var sPower = ComplexNumber(1.0, 0.0)
-        for (c in coeffs) {
-            res = res + sPower * ComplexNumber(c, 0.0)
-            sPower = sPower * s
+        for (i in coeffs.indices.reversed()) {
+            res = res * s + ComplexNumber(coeffs[i], 0.0)
         }
         return res
     }

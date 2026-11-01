@@ -16,8 +16,14 @@ data class DiscretizedFilter(
     val samplingPeriodSec: Double,
     val differenceEquationLatex: String
 ) {
-    val normalizedB: DoubleArray get() = DoubleArray(bCoeffs.size) { bCoeffs[it] / aCoeffs[0] }
-    val normalizedA: DoubleArray get() = DoubleArray(aCoeffs.size) { aCoeffs[it] / aCoeffs[0] }
+    val normalizedB: DoubleArray get() {
+        val a0 = if (aCoeffs.isNotEmpty() && kotlin.math.abs(aCoeffs[0]) > 1e-12) aCoeffs[0] else 1.0
+        return DoubleArray(bCoeffs.size) { bCoeffs[it] / a0 }
+    }
+    val normalizedA: DoubleArray get() {
+        val a0 = if (aCoeffs.isNotEmpty() && kotlin.math.abs(aCoeffs[0]) > 1e-12) aCoeffs[0] else 1.0
+        return DoubleArray(aCoeffs.size) { aCoeffs[it] / a0 }
+    }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

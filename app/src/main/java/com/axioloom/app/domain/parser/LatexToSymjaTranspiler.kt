@@ -482,7 +482,7 @@ class LatexToSymjaTranspiler {
                             need(Kind.RS)
                             MathExpr.IndexedSequence(name, idx)
                         }
-                        name == "e" -> MathExpr.Constant.E
+                        name == "e" && name !in boundSymbols && name !in localScope -> MathExpr.Constant.E
                         name == "i" && name !in boundSymbols && name !in localScope -> MathExpr.Constant.I
                         else -> MathExpr.Symbol(name)
                     }
@@ -866,34 +866,48 @@ class LatexToSymjaTranspiler {
         fun matrix(environment: String): MathExpr {
             val rows = mutableListOf<List<MathExpr>>()
             val row = mutableListOf<MathExpr>()
-            while (true) {
+            while (peek()?.kind != Kind.END) {
                 row += expression()
                 when {
                     accept(Kind.AMP) -> Unit
-                    accept(Kind.ROW) -> { rows += row.toList(); row.clear() }
-                    peek()?.kind == Kind.END -> {
-                        expect(take().text == environment, "Mismatched matrix environment")
-                        rows += row.toList()
-                        if (environment == "cases") {
-                            var defaultVal: MathExpr = MathExpr.Number("0")
-                            val branches = mutableListOf<MathExpr.PiecewiseBranch>()
-                            for (r in rows) {
-                                if (r.isEmpty()) continue
-                                val v = r[0]
-                                val cond = if (r.size > 1) r[1] else MathExpr.Otherwise
-                                if (cond is MathExpr.Otherwise) {
-                                    defaultVal = v
-                                }
-                                branches.add(MathExpr.PiecewiseBranch(v, cond))
-                            }
-                            return MathExpr.Piecewise(branches, defaultVal)
+                    accept(Kind.ROW) -> {
+                        if (row.isNotEmpty()) {
+                            rows += row.toList()
+                            row.clear()
                         }
-                        val matrix = MathExpr.Matrix(rows)
-                        return if (environment == "vmatrix") MathExpr.Builtin(MathExpr.Function.DET, listOf(matrix)) else matrix
+                    }
+                    peek()?.kind == Kind.END -> {
+                        if (row.isNotEmpty()) {
+                            rows += row.toList()
+                            row.clear()
+                        }
+                        break
                     }
                     else -> throw MathParseException("Expected matrix column, row, or end delimiter")
                 }
             }
+            if (row.isNotEmpty()) {
+                rows += row.toList()
+                row.clear()
+            }
+            expect(peek()?.kind == Kind.END, "Expected end delimiter")
+            expect(take().text == environment, "Mismatched matrix environment")
+            if (environment == "cases") {
+                var defaultVal: MathExpr = MathExpr.Number("0")
+                val branches = mutableListOf<MathExpr.PiecewiseBranch>()
+                for (r in rows) {
+                    if (r.isEmpty()) continue
+                    val v = r[0]
+                    val cond = if (r.size > 1) r[1] else MathExpr.Otherwise
+                    if (cond is MathExpr.Otherwise) {
+                        defaultVal = v
+                    }
+                    branches.add(MathExpr.PiecewiseBranch(v, cond))
+                }
+                return MathExpr.Piecewise(branches, defaultVal)
+            }
+            val matrix = MathExpr.Matrix(rows)
+            return if (environment == "vmatrix") MathExpr.Builtin(MathExpr.Function.DET, listOf(matrix)) else matrix
         }
     }
 

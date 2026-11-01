@@ -285,6 +285,8 @@ object FastPlotEvaluator {
     fun sampleVectorField(
         pExpr: MathExpr,
         qExpr: MathExpr,
+        xVar: String = "x",
+        yVar: String = "y",
         xRange: ClosedFloatingPointRange<Double> = -5.0..5.0,
         yRange: ClosedFloatingPointRange<Double> = -5.0..5.0,
         gridSize: Int = 15,
@@ -293,14 +295,16 @@ object FastPlotEvaluator {
         val dx = (xRange.endInclusive - xRange.start) / (gridSize - 1)
         val dy = (yRange.endInclusive - yRange.start) / (gridSize - 1)
         val result = ArrayList<VectorFieldPoint>(gridSize * gridSize)
-        val params = HashMap<String, Double>(2)
+        val params = HashMap<String, Double>(4)
 
         for (i in 0 until gridSize) {
             val x = xRange.start + i * dx
             params["x"] = x
+            params[xVar] = x
             for (j in 0 until gridSize) {
                 val y = yRange.start + j * dy
                 params["y"] = y
+                params[yVar] = y
                 val u = evaluate(pExpr, params, bindings).let { if (it.isFinite()) it else 0.0 }
                 val v = evaluate(qExpr, params, bindings).let { if (it.isFinite()) it else 0.0 }
                 val mag = kotlin.math.hypot(u, v)

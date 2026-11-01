@@ -452,4 +452,141 @@ class PhaseRemediationAuditTest {
         val code = EmbeddedCGenerator.generateMathFunction(expr, "test_index")
         assertTrue("C code must translate 1-based index to 0-based: - 1", code.sourceCode.contains("- 1") || code.sourceCode.contains("data["))
     }
+
+    @Test
+    fun kmapParseParamsWithVariousInputs() {
+        // 1. Inferred 2-variable K-Map
+        val p2 = com.axioloom.app.domain.logic.KarnaughMinimizer.parseKmapParams("kmap(m(0, 1))")
+        assertNotNull(p2)
+        assertEquals(2, p2!!.numVars)
+        assertEquals(setOf(0, 1), p2.minterms)
+
+        // 2. Explicit 3-variable K-Map with minterm containing digit 4
+        // (Must NOT be hijacked to 4 variables by character '4'!)
+        val p3Explicit = com.axioloom.app.domain.logic.KarnaughMinimizer.parseKmapParams("kmap(3, m(1, 4))")
+        assertNotNull(p3Explicit)
+        assertEquals(3, p3Explicit!!.numVars)
+        assertEquals(setOf(1, 4), p3Explicit.minterms)
+
+        // 3. Inferred 3-variable K-Map from max term 4
+        val p3Inferred = com.axioloom.app.domain.logic.KarnaughMinimizer.parseKmapParams("kmap(m(0, 1, 4))")
+        assertNotNull(p3Inferred)
+        assertEquals(3, p3Inferred!!.numVars)
+
+        // 4. Inferred 4-variable K-Map from max term 8
+        val p4Inferred = com.axioloom.app.domain.logic.KarnaughMinimizer.parseKmapParams("kmap(m(0, 1, 8))")
+        assertNotNull(p4Inferred)
+        assertEquals(4, p4Inferred!!.numVars)
+    }
+
+    @Test
+    fun dimensionalAnalysisSpatialDerivativeAndCoordinates() {
+        // Spatial variable x defaults to meter
+        val xExpr = MathExpr.Symbol("x")
+        val xDim = DimensionalAnalyzer.analyze(xExpr).dimension
+        assertEquals(1, xDim.lengthM)
+        assertEquals(0, xDim.timeS)
+
+        // Spatial derivative d/dx (x^2) => [m] / [m] = dimensionless
+        val derivX = MathExpr.Derivative(MathExpr.Binary(MathExpr.Op.POWER, MathExpr.Symbol("x"), MathExpr.Number("2")), "x")
+        val derivDim = DimensionalAnalyzer.analyze(derivX).dimension
+        assertTrue("Derivative d/dx (x^2) should be [m]", derivDim.lengthM == 1)
+
+        // Spatial derivative d/dx (V) => [V/m]
+        val derivV = MathExpr.Derivative(MathExpr.Symbol("v"), "x")
+        val vDim = DimensionalAnalyzer.analyze(derivV).dimension
+        assertEquals(DimensionVector.VOLT - DimensionVector.METER, vDim)
+
+        // Integral int V dx => [V * m]
+        val intV = MathExpr.Integral(MathExpr.Symbol("v"), "x", null, null)
+        val intDim = DimensionalAnalyzer.analyze(intV).dimension
+        assertEquals(DimensionVector.VOLT + DimensionVector.METER, intDim)
+    }
+
+    @Test
+    fun schematicRecognizerDoesNotShortSmallComponent() {
+        // Resistor stroke whose two terminals are close together (< snapRadiusPx)
+        val stroke = TimedStroke.fromPoints(
+            points = listOf(
+                InkPoint(100f, 100f, 0L),
+                InkPoint(102f, 105f, 10L),
+                InkPoint(104f, 101f, 20L),
+                InkPoint(106f, 106f, 30L),
+                InkPoint(108f, 102f, 40L),
+                InkPoint(110f, 100f, 50L)
+            ),
+            finishedAtMillis = 100L
+        )
+        val schematic = com.axioloom.app.domain.circuit.SchematicStrokeRecognizer.recognize(
+            strokes = listOf(stroke),
+            snapRadiusPx = 25f
+        )
+        // Ensure the component was recognized and NOT dropped due to self-shorting
+        assertEquals(1, schematic.components.size)
+        val comp = schematic.components[0]
+        assertEquals(2, comp.terminals.size)
+    }
+
+    @Test
+    fun circularConvolutionZeroPaddingDoesNotCrash() {
+        val leftSeq = MathExpr.DiscreteSequence(listOf(MathExpr.Number("1"), MathExpr.Number("2")))
+        val rightSeq = MathExpr.DiscreteSequence(listOf(MathExpr.Number("1"), MathExpr.Number("1"), MathExpr.Number("1")))
+        val circConv = MathExpr.CircularConvolution(leftSeq, rightSeq)
+        val compiled = SymjaCompiler.compile(MathIntent.EvaluationQuery(circConv))
+        assertTrue("Compiled command must contain Length check guards", compiled.command.contains("Length"))
+    }
+
+    @Test
+    fun matrixTrailingRowDelimiterTranspilation() {
+        val parsed = parser.transpile("\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\\\ \\end{pmatrix}")
+        val query = parsed.intent as MathIntent.EvaluationQuery
+        assertTrue("Parsed matrix must be MathExpr.Matrix", query.expression is MathExpr.Matrix)
+        val mat = query.expression as MathExpr.Matrix
+        assertEquals(2, mat.rows.size)
+        assertEquals(2, mat.rows[0].size)
+    }
+
+    @Test
+    fun variableESymbolNotClobberedWhenBound() {
+        // When e is in bound symbols, it should parse as MathExpr.Symbol("e"), not MathExpr.Constant.E
+        val parsed = parser.transpile("e + 1", boundSymbols = setOf("e"))
+        val query = parsed.intent as MathIntent.EvaluationQuery
+        val binary = query.expression as MathExpr.Binary
+        assertTrue("LHS must be Symbol('e')", binary.left is MathExpr.Symbol && (binary.left as MathExpr.Symbol).name == "e")
+
+        // When e is NOT in bound symbols, it should parse as MathExpr.Constant.E
+        val parsedUnbound = parser.transpile("e + 1")
+        val queryUnbound = parsedUnbound.intent as MathIntent.EvaluationQuery
+        val binaryUnbound = queryUnbound.expression as MathExpr.Binary
+        assertTrue("LHS must be Constant.E", binaryUnbound.left == MathExpr.Constant.E)
+    }
+
+    @Test
+    fun bilinearDiscretizerNormalizesSafelyOnZeroA0() {
+        val filter = com.axioloom.app.domain.codegen.DiscretizedFilter(
+            continuousNumCoeffs = doubleArrayOf(1.0),
+            continuousDenCoeffs = doubleArrayOf(1.0),
+            bCoeffs = doubleArrayOf(1.0, 2.0),
+            aCoeffs = doubleArrayOf(0.0, 1.0), // Zero a0
+            samplingFreqHz = 1000.0,
+            samplingPeriodSec = 0.001,
+            differenceEquationLatex = "y[n] = 0"
+        )
+        // normalizedB and normalizedA must not throw ArithmeticException or produce NaN
+        val normB = filter.normalizedB
+        assertNotNull(normB)
+        assertEquals(2, normB.size)
+        assertFalse(normB[0].isNaN())
+    }
+
+    @Test
+    fun rootLocusHornerEvaluationAccuracy() {
+        // Characteristic equation: s^2 + 3s + 2 = 0 => roots at s = -1, s = -2
+        val poly = doubleArrayOf(2.0, 3.0, 1.0)
+        val roots = com.axioloom.app.domain.cas.RootLocusEngine.findRootsDurandKerner(poly)
+        assertEquals(2, roots.size)
+        val realRoots = roots.map { it.re }.sorted()
+        assertEquals(-2.0, realRoots[0], 1e-4)
+        assertEquals(-1.0, realRoots[1], 1e-4)
+    }
 }
