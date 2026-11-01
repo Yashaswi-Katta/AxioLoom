@@ -21,7 +21,7 @@ class LatexToSymjaTranspiler {
             val terms = trimmed.split("+").map { it.trim() }.filter { it.isNotEmpty() }
             if (terms.isEmpty()) return MathExpr.Number("0")
 
-            val factorRegex = Regex("""\\overline\{([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)?)\}|([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)?)""")
+            val factorRegex = SOP_FACTOR_REGEX
             val termExprs = terms.map { term ->
                 val factors = factorRegex.findAll(term).map { match ->
                     val notVar = match.groups[1]?.value
@@ -48,7 +48,7 @@ class LatexToSymjaTranspiler {
         var clean = latex.trim()
         if (clean.startsWith("$$") && clean.endsWith("$$") && clean.length >= 4) clean = clean.substring(2, clean.length - 2)
         else if (clean.startsWith('$') && clean.endsWith('$') && clean.length >= 2) clean = clean.substring(1, clean.length - 1)
-        val kmapRegex = Regex("""(?:\\operatorname\s*\{\s*kmap\s*\}|\bkmap\b)""", RegexOption.IGNORE_CASE)
+        val kmapRegex = KMAP_REGEX
         if (kmapRegex.containsMatchIn(clean)) {
             val kmapResult = KarnaughMinimizer.parseKmapCommand(clean)
             if (kmapResult != null) {
@@ -59,44 +59,44 @@ class LatexToSymjaTranspiler {
             }
         }
         clean = com.axioloom.app.domain.model.EngineeringConstants.expandSiSuffixes(clean)
-        clean = clean.replace(Regex("\\\\(?:left|right|quad|qquad)(?![A-Za-z])"), "")
+        clean = clean.replace(TEX_FORMATTING_REGEX, "")
             .replace("\\{", "{")
             .replace("\\}", "}")
             .replace("\\ast", " \\ast ")
             .replace("\\star", " \\ast ")
-            .replace(Regex("\\\\[,;:!]"), " ")
-            .replace(Regex("\\\\(?:le|leq)(?![a-zA-Z])"), "<=")
-            .replace(Regex("\\\\(?:ge|geq)(?![a-zA-Z])"), ">=")
-            .replace(Regex("\\\\neq(?![a-zA-Z])"), "!=")
-            .replace(Regex("""\\text\s*\{\s*otherwise\s*\}|\botherwise\b"""), "\\otherwise ")
-            .replace(Regex("""\\text\s*\{\s*if\s*\}|\bif\b"""), " ")
-            .replace(Regex("\\\\parallel"), " || ")
-            .replace(Regex("""\\\|"""), " || ")
-            .replace(Regex("""\\partial\b"""), "d")
-            .replace(Regex("""\\frac\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}""")) { match ->
+            .replace(PUNCTUATION_SPACING_REGEX, " ")
+            .replace(LE_REGEX, "<=")
+            .replace(GE_REGEX, ">=")
+            .replace(NEQ_REGEX, "!=")
+            .replace(OTHERWISE_REGEX, "\\otherwise ")
+            .replace(IF_REGEX, " ")
+            .replace(PARALLEL_WORD_REGEX, " || ")
+            .replace(PARALLEL_BARS_REGEX, " || ")
+            .replace(PARTIAL_REGEX, "d")
+            .replace(DELTA_DIFF_QUOTIENT_REGEX) { match ->
                 "\\frac{d ${match.groupValues[1]}}{d ${match.groupValues[2]}}"
             }
-            .replace(Regex("""\\frac\s*\{\s*\\(?:delta|Delta)\s*\}\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}""")) { match ->
+            .replace(DELTA_DIFF_OPERATOR_REGEX) { match ->
                 "\\frac{d}{d ${match.groupValues[1]}}"
             }
-                        .replace(Regex("""\\pm\b"""), "+")
-            .replace(Regex("""\\mp\b"""), "-")
-            .replace(Regex("""\\equiv\b"""), "==")
-            .replace(Regex("""\\propto\b"""), "==")
-            .replace(Regex("""\\leftarrow\b"""), "->")
-            .replace(Regex("""\\iint\b"""), "\\int ")
-            .replace(Regex("""\\iiint\b"""), "\\int ")
-            .replace(Regex("""\\oint\b"""), "\\int ")
-            .replace(Regex("""\\mathcal\s*(?:\{\s*F\s*\}|F\b)"""), "\\fourier ")
-            .replace(Regex("""\\operatorname\s*\{\s*deg\s*\}\s*\(([^)]+)\)""")) { "((${it.groupValues[1]}) * 180 / \\pi)" }
-            .replace(Regex("""\\operatorname\s*\{\s*rad\s*\}\s*\(([^)]+)\)""")) { "((${it.groupValues[1]}) * \\pi / 180)" }
-            .replace(Regex("\\\\(?:vec|mathbf|boldsymbol|mathrm|text)\\s*\\{([^}]+)\\}")) { it.groupValues[1] }
-            .replace(Regex("""\\mathrm\s*\{\s*d\s*\}"""), "d")
-            .replace(Regex("""\\mathcal\s*(?:\{\s*L\s*\^\s*(?:\{\s*-1\s*\}|-1)\s*\}|(?:\{\s*L\s*\}|L\b)\s*\^\s*(?:\{\s*-1\s*\}|-1))""")) { "\\ilaplace " }
-            .replace(Regex("""\\mathcal\s*(?:\{\s*Z\s*\^\s*(?:\{\s*-1\s*\}|-1)\s*\}|(?:\{\s*Z\s*\}|Z\b)\s*\^\s*(?:\{\s*-1\s*\}|-1))""")) { "\\iztrans " }
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*L\\s*}|L\\b)(?!\\s*\\^)")) { "\\laplace " }
-            .replace(Regex("\\\\mathcal\\s*(?:\\{\\s*Z\\s*}|Z\\b)(?!\\s*\\^)")) { "\\ztrans " }
-            .replace(Regex("""\\operatorname\s*\{\s*(sin|cos|tan|arcsin|arccos|arctan|asin|acos|atan|sinh|cosh|tanh|ln|log|exp|sqrt|det|transpose|inverse|eigenvalues|eig|eigenvectors|tr|trace|rank|rref|Re|re|Im|im|conj|conjugate|arg|laplace|ilaplace|ztrans|grad|div|curl|step|unitstep|delta|dirac|diracdelta|taylor|series|conv|cconv|dft|idft|linreg|polyreg|mean|stdev)\s*\}""")) {
+            .replace(PM_REGEX, "+")
+            .replace(MP_REGEX, "-")
+            .replace(EQUIV_REGEX, "==")
+            .replace(PROPTO_REGEX, "==")
+            .replace(LEFTARROW_REGEX, "->")
+            .replace(IINT_REGEX, "\\int ")
+            .replace(IIINT_REGEX, "\\int ")
+            .replace(OINT_REGEX, "\\int ")
+            .replace(FOURIER_REGEX, "\\fourier ")
+            .replace(DEG_REGEX) { "((${it.groupValues[1]}) * 180 / \\pi)" }
+            .replace(RAD_REGEX) { "((${it.groupValues[1]}) * \\pi / 180)" }
+            .replace(FONT_WRAPPERS_REGEX) { it.groupValues[1] }
+            .replace(MATHRM_D_REGEX, "d")
+            .replace(ILAPLACE_REGEX) { "\\ilaplace " }
+            .replace(IZTRANS_REGEX) { "\\iztrans " }
+            .replace(LAPLACE_REGEX) { "\\laplace " }
+            .replace(ZTRANS_REGEX) { "\\ztrans " }
+            .replace(OPERATOR_NAME_REGEX) {
                 "\\" + (if (it.groupValues[1] == "div") "divergence" else it.groupValues[1])
             }
             .trim()
@@ -562,7 +562,7 @@ class LatexToSymjaTranspiler {
         fun identifierTail(base: String): String {
             if (!accept(Kind.UNDER)) return base
             val suffix = if (peek()?.kind == Kind.LB) group().joinToString("") { it.text } else take().text
-            expect(suffix.matches(Regex("[A-Za-z0-9]+")), "A subscript identifier must be alphanumeric")
+            expect(suffix.matches(SUBSCRIPT_IDENTIFIER_REGEX), "A subscript identifier must be alphanumeric")
             return "${base}_$suffix"
         }
         fun identifier(): String {
@@ -918,6 +918,39 @@ class LatexToSymjaTranspiler {
     }
 
     private companion object {
+        val KMAP_REGEX = Regex("""(?:\\operatorname\s*\{\s*kmap\s*\}|\bkmap\b)""", RegexOption.IGNORE_CASE)
+        val SOP_FACTOR_REGEX = Regex("""\\overline\{([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)?)\}|([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)?)""")
+        val TEX_FORMATTING_REGEX = Regex("""\\(?:left|right|quad|qquad)(?![A-Za-z])""")
+        val PUNCTUATION_SPACING_REGEX = Regex("""\\[,;:!]""")
+        val LE_REGEX = Regex("""\\(?:le|leq)(?![a-zA-Z])""")
+        val GE_REGEX = Regex("""\\(?:ge|geq)(?![a-zA-Z])""")
+        val NEQ_REGEX = Regex("""\\neq(?![a-zA-Z])""")
+        val OTHERWISE_REGEX = Regex("""\\text\s*\{\s*otherwise\s*\}|\botherwise\b""")
+        val IF_REGEX = Regex("""\\text\s*\{\s*if\s*\}|\bif\b""")
+        val PARALLEL_WORD_REGEX = Regex("""\\parallel""")
+        val PARALLEL_BARS_REGEX = Regex("""\\\|""")
+        val PARTIAL_REGEX = Regex("""\\partial\b""")
+        val DELTA_DIFF_QUOTIENT_REGEX = Regex("""\\frac\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}""")
+        val DELTA_DIFF_OPERATOR_REGEX = Regex("""\\frac\s*\{\s*\\(?:delta|Delta)\s*\}\s*\{\s*\\(?:delta|Delta)\s*([A-Za-z]+)\s*\}""")
+        val PM_REGEX = Regex("""\\pm\b""")
+        val MP_REGEX = Regex("""\\mp\b""")
+        val EQUIV_REGEX = Regex("""\\equiv\b""")
+        val PROPTO_REGEX = Regex("""\\propto\b""")
+        val LEFTARROW_REGEX = Regex("""\\leftarrow\b""")
+        val IINT_REGEX = Regex("""\\iint\b""")
+        val IIINT_REGEX = Regex("""\\iiint\b""")
+        val OINT_REGEX = Regex("""\\oint\b""")
+        val FOURIER_REGEX = Regex("""\\mathcal\s*(?:\{\s*F\s*\}|F\b)""")
+        val DEG_REGEX = Regex("""\\operatorname\s*\{\s*deg\s*\}\s*\(([^)]+)\)""")
+        val RAD_REGEX = Regex("""\\operatorname\s*\{\s*rad\s*\}\s*\(([^)]+)\)""")
+        val FONT_WRAPPERS_REGEX = Regex("""\\(?:vec|mathbf|boldsymbol|mathrm|text)\s*\{([^\\}]+)\}""")
+        val MATHRM_D_REGEX = Regex("""\\mathrm\s*\{\s*d\s*\}""")
+        val ILAPLACE_REGEX = Regex("""\\mathcal\s*(?:\{\s*L\s*\^\s*(?:\{\s*-1\s*\}|-1)\s*\}|(?:\{\s*L\s*\}|L\b)\s*\^\s*(?:\{\s*-1\s*\}|-1))""")
+        val IZTRANS_REGEX = Regex("""\\mathcal\s*(?:\{\s*Z\s*\^\s*(?:\{\s*-1\s*\}|-1)\s*\}|(?:\{\s*Z\s*\}|Z\b)\s*\^\s*(?:\{\s*-1\s*\}|-1))""")
+        val LAPLACE_REGEX = Regex("""\\mathcal\s*(?:\{\s*L\s*\}|L\b)(?!\s*\^)""")
+        val ZTRANS_REGEX = Regex("""\\mathcal\s*(?:\{\s*Z\s*\}|Z\b)(?!\s*\^)""")
+        val OPERATOR_NAME_REGEX = Regex("""\\operatorname\s*\{\s*(sin|cos|tan|arcsin|arccos|arctan|asin|acos|atan|sinh|cosh|tanh|ln|log|exp|sqrt|det|transpose|inverse|eigenvalues|eig|eigenvectors|tr|trace|rank|rref|Re|re|Im|im|conj|conjugate|arg|laplace|ilaplace|ztrans|grad|div|curl|step|unitstep|delta|dirac|diracdelta|taylor|series|conv|cconv|dft|idft|linreg|polyreg|mean|stdev)\s*\}""")
+        val SUBSCRIPT_IDENTIFIER_REGEX = Regex("[A-Za-z0-9]+")
         val opens = setOf(Kind.LP, Kind.LB, Kind.LS, Kind.BEGIN)
         val closes = setOf(Kind.RP, Kind.RB, Kind.RS, Kind.END)
         val starts = setOf(Kind.NUMBER, Kind.NAME, Kind.COMMAND, Kind.LP, Kind.LB, Kind.LS, Kind.BEGIN, Kind.NABLA, Kind.OTHERWISE)

@@ -362,7 +362,7 @@ class CalculusTheoremAnalyzer(private val cas: OfflineCasEngine) {
     private fun extractSymbolicRootsFromSymja(raw: String, variable: String): List<String> {
         val results = mutableListOf<String>()
         // Match {variable -> expression}
-        val regex = Regex("""$variable\s*->\s*([^,}]+)""")
+        val regex = Regex("""$variable\s*->\s*([^,\}]+)""")
         regex.findAll(raw).forEach { match ->
             val sym = match.groupValues[1].trim()
             if (!sym.contains("I")) { // exclude complex

@@ -7,6 +7,7 @@ import com.axioloom.app.domain.cas.OfflineCasEngine
 import com.axioloom.app.domain.gesture.ScratchOutDetector
 import com.axioloom.app.domain.model.*
 import com.axioloom.app.domain.parser.LatexToSymjaTranspiler
+import com.axioloom.app.domain.parser.MathParseException
 import com.axioloom.app.ml.hmer.HmerVocabulary
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -640,5 +641,34 @@ class PhaseRemediationAuditTest {
         // Operator notation d/dx (y)
         val p5 = parser.transpile("\\frac{d}{dx} y")
         assertTrue((p5.intent as MathIntent.EvaluationQuery).expression is MathExpr.Derivative)
+    }
+
+    @Test
+    fun transpilerRegexPatternsCompileWithoutIcuSyntaxErrors() {
+        // Test basic characters that trigger full cleanLatex execution without regexp syntax faults
+        val basicInputs = listOf(
+            "x",
+            "1",
+            "x + y",
+            "\\mathcal{L}{t}",
+            "\\mathcal{L} t",
+            "\\mathcal{Z}{n}",
+            "\\mathcal{Z} n",
+            "\\mathcal{F}{t}",
+            "\\vec{v}",
+            "\\mathbf{M}",
+            "\\text{if} x > 0",
+            "\\text{otherwise}"
+        )
+        for (input in basicInputs) {
+            try {
+                val result = parser.transpile(input)
+                assertNotNull(result)
+            } catch (e: java.util.regex.PatternSyntaxException) {
+                fail("PatternSyntaxException in cleanLatex for input '$input': ${e.message}")
+            } catch (_: MathParseException) {
+                // Parse errors for partial inputs are fine, but regex pattern syntax exceptions must never occur
+            }
+        }
     }
 }
