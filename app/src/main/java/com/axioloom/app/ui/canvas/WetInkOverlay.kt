@@ -145,6 +145,9 @@ private class InkInputLayout(
             return true
         }
         override fun onLongPress(event: MotionEvent) {
+            if (activeStrokes.isNotEmpty() || fallbackPoints.isNotEmpty()) {
+                return
+            }
             val pointer = event.actionIndex.coerceIn(0, event.pointerCount - 1)
             if (event.getToolType(pointer) != MotionEvent.TOOL_TYPE_STYLUS &&
                 event.getToolType(pointer) != MotionEvent.TOOL_TYPE_ERASER
@@ -395,7 +398,11 @@ private class InkInputLayout(
                     val lastElapsed = fallbackPoints.lastOrNull()?.elapsedTimeMillis ?: 0L
                     val elapsed = (SystemClock.elapsedRealtime() - fallbackStrokeStartTime).coerceAtLeast(lastElapsed)
                     fallbackPoints.add(InkPoint(worldPos.x, worldPos.y, elapsed))
-                    if (fallbackPoints.size >= 2) {
+                    if (fallbackPoints.size == 1) {
+                        val single = fallbackPoints[0]
+                        fallbackPoints.add(InkPoint(single.x + 0.1f, single.y + 0.1f, single.elapsedTimeMillis + 1L))
+                    }
+                    if (fallbackPoints.isNotEmpty()) {
                         val stroke = TimedStroke.fromPoints(
                             points = fallbackPoints.toList(),
                             finishedAtMillis = SystemClock.elapsedRealtime()
@@ -435,7 +442,7 @@ private class InkInputLayout(
                 suppressCurrentGesture = false
                 val index = event.actionIndex
                 val pointerId = event.getPointerId(index)
-                if (isStylus(event, index)) {
+                if (isStylus(event, index) || isMouseOrGeneric(event, index)) {
                     previousFingerPositions.clear()
                     runCatching { requestUnbufferedDispatch(event) }
                     runCatching {
@@ -453,7 +460,7 @@ private class InkInputLayout(
             MotionEvent.ACTION_POINTER_DOWN -> {
                 val index = event.actionIndex
                 val pointerId = event.getPointerId(index)
-                if (isStylus(event, index)) {
+                if (isStylus(event, index) || isMouseOrGeneric(event, index)) {
                     previousFingerPositions.clear()
                     runCatching { requestUnbufferedDispatch(event) }
                     runCatching {
@@ -565,4 +572,8 @@ private class InkInputLayout(
 
     private fun isFinger(event: MotionEvent, index: Int): Boolean =
         event.getToolType(index) == MotionEvent.TOOL_TYPE_FINGER
+
+    private fun isMouseOrGeneric(event: MotionEvent, index: Int): Boolean =
+        event.getToolType(index) == MotionEvent.TOOL_TYPE_MOUSE ||
+            event.getToolType(index) == MotionEvent.TOOL_TYPE_UNKNOWN
 }

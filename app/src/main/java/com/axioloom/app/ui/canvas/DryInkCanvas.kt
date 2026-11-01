@@ -149,6 +149,33 @@ fun DryInkCanvas(
                     canvas.drawLine(r - arm, b, r, b, bracketPaint)
                     canvas.drawLine(r, b, r, b - arm, bracketPaint)
 
+                    // In-canvas clear status feedback when block has an error
+                    if (status is BlockStatus.Error) {
+                        val errorMsg = status.message
+                        val shortMsg = if (errorMsg.length > 26) errorMsg.take(23) + "..." else errorMsg
+                        val errTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.rgb(245, 140, 150)
+                            textSize = 10f
+                            typeface = android.graphics.Typeface.MONOSPACE
+                        }
+                        val errBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.argb(220, 32, 16, 20)
+                            style = Paint.Style.FILL
+                        }
+                        val errBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.argb(180, 212, 81, 92)
+                            style = Paint.Style.STROKE
+                            strokeWidth = 1f
+                        }
+                        val textW = errTextPaint.measureText(shortMsg)
+                        val badgeLeft = bounds.right + 10f
+                        val badgeTop = bounds.top
+                        val badgeRect = RectF(badgeLeft, badgeTop, badgeLeft + textW + 12f, badgeTop + 18f)
+                        canvas.drawRoundRect(badgeRect, 3f, 3f, errBgPaint)
+                        canvas.drawRoundRect(badgeRect, 3f, 3f, errBorderPaint)
+                        canvas.drawText(shortMsg, badgeLeft + 6f, badgeTop + 13f, errTextPaint)
+                    }
+
                     val fastOverride = fastNumericOverrides[block.id]
                     val rawResult = result?.latex
                     val resultLatex = when {
@@ -237,18 +264,22 @@ private fun drawFallbackStroke(canvas: android.graphics.Canvas, timedStroke: com
     if (pts.isEmpty()) return
     val ox = timedStroke.translationOffset.x
     val oy = timedStroke.translationOffset.y
-    if (pts.size < 2) return
-    val path = android.graphics.Path()
-    path.moveTo(pts[0].x + ox, pts[0].y + oy)
-    for (i in 1 until pts.size) {
-        path.lineTo(pts[i].x + ox, pts[i].y + oy)
-    }
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.WHITE
         style = Paint.Style.STROKE
         strokeWidth = 3.5f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
+    }
+    if (pts.size == 1) {
+        paint.style = Paint.Style.FILL
+        canvas.drawCircle(pts[0].x + ox, pts[0].y + oy, 2.0f, paint)
+        return
+    }
+    val path = android.graphics.Path()
+    path.moveTo(pts[0].x + ox, pts[0].y + oy)
+    for (i in 1 until pts.size) {
+        path.lineTo(pts[i].x + ox, pts[i].y + oy)
     }
     canvas.drawPath(path, paint)
 }

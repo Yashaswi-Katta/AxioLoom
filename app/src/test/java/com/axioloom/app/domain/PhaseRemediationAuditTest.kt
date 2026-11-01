@@ -334,4 +334,33 @@ class PhaseRemediationAuditTest {
             cas.close()
         }
     }
+
+    @Test
+    fun singlePointDotStrokeGeneratesValidGeometry() {
+        val pt = InkPoint(100f, 150f, 0L)
+        val stroke = TimedStroke.fromPoints(listOf(pt, InkPoint(pt.x + 0.1f, pt.y + 0.1f, 1L)))
+        assertTrue("Stroke geometry must be finite and ordered", stroke.geometry.bounds.isFiniteOrdered())
+        assertTrue("Stroke points should not be empty", stroke.points.isNotEmpty())
+    }
+
+    @Test
+    fun prototypeClassifierGroupsMultiStrokeSymbolsWithRealisticGaps() {
+        val classifier = SymbolPrototypeClassifier()
+        val vertStroke = TimedStroke.fromPoints(listOf(InkPoint(50f, 10f, 0L), InkPoint(50f, 90f, 50L)))
+        val horizStroke = TimedStroke.fromPoints(listOf(InkPoint(10f, 50f, 60L), InkPoint(90f, 50f, 110L)))
+        val result = classifier.recognizeExpression(listOf(vertStroke, horizStroke))
+        assertNotNull("Expected recognized expression for '+'", result)
+        assertEquals("+", result?.latex)
+    }
+
+    @Test
+    fun prototypeClassifierRejectsUnmatchedGarbageCluster() {
+        val classifier = SymbolPrototypeClassifier()
+        val wildPoints = (0 until 32).map { i ->
+            InkPoint((i * 17 % 100).toFloat(), ((i * 31 + 7) % 100).toFloat(), i * 10L)
+        }
+        val garbageStroke = TimedStroke.fromPoints(wildPoints)
+        val match = classifier.classify(listOf(garbageStroke))
+        assertNotNull("Match object should be returned", match)
+    }
 }

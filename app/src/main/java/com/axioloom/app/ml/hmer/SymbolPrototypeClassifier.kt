@@ -542,10 +542,12 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             val matches = classifyStrokes(polylines)
             if (matches.isNotEmpty()) {
                 val top = matches.first()
-                tokens.add(RecognizedToken(top.latex, clusterBounds, matches.drop(1).take(3).map { it.latex }))
-                matches.take(3).forEach { m ->
-                    if (m.latex != top.latex && m.latex !in allAlternatives) {
-                        allAlternatives.add(m.latex)
+                if (top.score <= 0.65f) {
+                    tokens.add(RecognizedToken(top.latex, clusterBounds, matches.drop(1).take(3).map { it.latex }))
+                    matches.take(3).forEach { m ->
+                        if (m.latex != top.latex && m.latex !in allAlternatives) {
+                            allAlternatives.add(m.latex)
+                        }
                     }
                 }
             }
@@ -635,6 +637,8 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
             var placed = false
 
             for (cluster in clusters) {
+                if (cluster.size >= 3) continue
+
                 val cLeft = cluster.minOf { it.bounds.left }
                 val cRight = cluster.maxOf { it.bounds.right }
                 val cTop = cluster.minOf { it.bounds.top }
@@ -643,19 +647,24 @@ class SymbolPrototypeClassifier(private val context: Context? = null) {
                 val cHeight = max(cBottom - cTop, 8f)
                 val cBounds = Rect(cLeft, cTop, cRight, cBottom)
 
-                // Condition 1: Intersection or contact distance <= 14px
+                // Condition 1: Dynamic Contact distance (scaled by stroke height, min 22px)
+                val dynamicContact = max(22f, max(sBounds.height, cHeight) * 0.40f)
                 val touchesAny = cluster.any { other ->
-                    strokesIntersectOrTouch(stroke, other, 14f)
+                    strokesIntersectOrTouch(stroke, other, dynamicContact)
                 }
 
                 // Condition 2: Vertical Stacking (like '=' sign or division bar)
                 val overlapX = min(sBounds.right, cRight) - max(sBounds.left, cLeft)
                 val minW = min(sBounds.width, cWidth)
-                val isStacked = (minW > 4f && overlapX / minW >= 0.45f) &&
-                        (abs(sBounds.center.x - cBounds.center.x) <= max(sBounds.width, cWidth) * 0.55f) &&
-                        (verticalDistance(sBounds, cBounds) <= max(cHeight, sBounds.height) * 1.25f)
+                val isStacked = (minW > 4f && overlapX / minW >= 0.35f) &&
+                        (abs(sBounds.center.x - cBounds.center.x) <= max(sBounds.width, cWidth) * 0.65f) &&
+                        (verticalDistance(sBounds, cBounds) <= max(cHeight, sBounds.height) * 1.5f)
 
-                if (touchesAny || isStacked) {
+                // Condition 3: Enclosed or tightly overlapping bounding box (e.g. crossbars or diacritics)
+                val isOverlapping = minW > 4f && overlapX / minW >= 0.50f &&
+                        (verticalDistance(sBounds, cBounds) <= max(cHeight, sBounds.height) * 0.85f)
+
+                if (touchesAny || isStacked || isOverlapping) {
                     cluster.add(stroke)
                     placed = true
                     break
